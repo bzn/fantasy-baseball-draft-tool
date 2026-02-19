@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fantasy Baseball Draft Tool</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Fantasy Baseball Draft Tool</h1>
+            <p class="subtitle">Draft Assistant with Yahoo Integration</p>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab-btn active" data-tab="setup">Setup</button>
+            <button class="tab-btn" data-tab="roto" id="tabRankings" disabled>Rankings</button>
+            <button class="tab-btn" data-tab="draft" id="tabDraft" disabled>Draft</button>
+        </nav>
+
+        <!-- Setup Tab -->
+        <section id="setup" class="tab-content active">
+            <div class="parser-section">
+                <h2>Setup - Connect & Configure</h2>
+
+                <!-- Step 1: Yahoo Connection -->
+                <div class="setup-step" style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                    <h3 style="margin: 0 0 12px 0;">Step 1: Connect Yahoo Fantasy</h3>
+                    <p class="help-text" style="margin-bottom: 12px;">
+                        Connect your Yahoo account to automatically load league settings and player positions.
+                    </p>
+
+                    <!-- Yahoo API Configuration -->
+                    <div id="yahooApiConfigSection" style="margin-bottom: 16px; padding: 12px; background: #f1f5f9; border-radius: 6px; border: 1px solid #cbd5e1;">
+                        <h4 style="margin: 0 0 8px 0; font-size: 1em;">Yahoo API Configuration</h4>
+                        <p class="help-text" style="margin-bottom: 10px; font-size: 0.85em;">
+                            Get your credentials from <a href="https://developer.yahoo.com/apps/" target="_blank" rel="noopener">Yahoo Developer Console</a>
+                            (or use server-side config file <code>api/yahoo-config.php</code>).
+                        </p>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                            <div>
+                                <label for="yahooClientId" style="display: block; font-size: 0.85em; margin-bottom: 4px;">Client ID:</label>
+                                <input type="text" id="yahooClientId" class="form-control" placeholder="YOUR_CLIENT_ID" style="width: 100%; padding: 6px; font-size: 0.9em;">
+                            </div>
+                            <div>
+                                <label for="yahooClientSecret" style="display: block; font-size: 0.85em; margin-bottom: 4px;">Client Secret:</label>
+                                <input type="password" id="yahooClientSecret" class="form-control" placeholder="YOUR_CLIENT_SECRET" style="width: 100%; padding: 6px; font-size: 0.9em;">
+                            </div>
+                        </div>
+                        <button id="saveYahooConfigBtn" class="btn secondary" style="font-size: 0.85em;">Save Configuration</button>
+                        <span id="yahooConfigSaveStatus" style="margin-left: 8px; font-size: 0.85em;"></span>
+                    </div>
+
+                    <!-- Auth Status & Buttons -->
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                        <button id="yahooLoginBtn" class="btn primary hidden" onclick="YahooApi.login()">Login with Yahoo</button>
+                        <button id="yahooLogoutBtn" class="btn secondary hidden" onclick="YahooApi.logout()">Logout</button>
+                        <span id="yahooAuthStatus" style="font-size: 0.9em;"></span>
+                    </div>
+
+                    <!-- League Selector (shown when authenticated) -->
+                    <div id="yahooLeagueSection" class="hidden" style="margin-top: 12px;">
+                        <div class="input-group inline" style="margin-bottom: 8px;">
+                            <label for="yahooLeagueSelect">Select League:</label>
+                            <select id="yahooLeagueSelect" style="flex: 1;">
+                                <option value="">-- Select League --</option>
+                            </select>
+                            <button id="yahooLoadLeagueBtn" class="btn primary">Load League</button>
+                        </div>
+                        <div id="yahooLeagueStatus" style="font-size: 0.9em; margin-top: 8px;"></div>
+                    </div>
+                </div>
+
+                <!-- Step 2: Auto-Load Players -->
+                <div class="setup-step" style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                    <h3 style="margin: 0 0 12px 0;">Step 2: Load Player Positions</h3>
+                    <p class="help-text" style="margin-bottom: 12px;">
+                        Load player position eligibility from Yahoo API (replaces manual copy-paste).
+                    </p>
+                    <div id="yahooPlayerSavedStatus" style="font-size: 0.9em; margin-bottom: 8px;"></div>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <button id="yahooLoadPlayersBtn" class="btn primary" disabled>Load Players from Yahoo</button>
+                        <span id="yahooPlayerLoadStatus" style="font-size: 0.9em;"></span>
+                    </div>
+                    <div id="yahooPlayerLoadProgress" class="hidden" style="margin-top: 12px;">
+                        <div style="background: #e2e8f0; border-radius: 4px; height: 8px; overflow: hidden;">
+                            <div id="yahooPlayerProgressBar" style="background: #2563eb; height: 100%; width: 0%; transition: width 0.3s;"></div>
+                        </div>
+                        <p id="yahooPlayerProgressText" style="font-size: 0.85em; color: #64748b; margin-top: 4px;"></p>
+                    </div>
+                </div>
+
+                <!-- Step 3: Import Projections -->
+                <div class="setup-step" style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                    <h3 style="margin: 0 0 12px 0;">Step 3: Import FanGraphs Projections</h3>
+                    <p class="help-text" style="margin-bottom: 12px;">
+                        Auto-fetch projections from FanGraphs, or manually import via the <strong>Projections</strong> tab.
+                    </p>
+
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
+                        <button id="setupFetchProjectionsBtn" class="btn primary">Fetch from FanGraphs</button>
+                        <div class="input-group inline" style="margin: 0;">
+                            <label for="projectionSystem" style="font-size: 0.9em;">System:</label>
+                            <select id="projectionSystem" style="min-width: 120px;">
+                                <option value="thebatx" selected>THE BAT X</option>
+                                <option value="thebat">THE BAT</option>
+                                <option value="steamer">Steamer</option>
+                                <option value="zips">ZiPS</option>
+                                <option value="atc">ATC</option>
+                            </select>
+                        </div>
+                        <span id="setupFetchStatus" style="font-size: 0.9em;"></span>
+                    </div>
+
+                    <div id="setupProjectionStatus" style="font-size: 0.9em;">
+                        <p><strong>Hitters:</strong> <span id="setupHitterCount">Not loaded</span></p>
+                        <p><strong>Pitchers:</strong> <span id="setupPitcherCount">Not loaded</span></p>
+                        <p><strong>Merged:</strong> <span id="setupMergedCount">Not merged</span></p>
+                    </div>
+                </div>
+
+                <!-- Step 4: Fine-tune & Start -->
+                <div class="setup-step" style="padding: 20px; background: #f0fdf4; border-radius: 8px; border: 1px solid #bbf7d0;">
+                    <h3 style="margin: 0 0 8px 0; color: #16a34a;">Step 4: Fine-tune & Start</h3>
+                    <p class="help-text" style="margin-bottom: 12px;">
+                        Once data is loaded and merged, go to the <strong>Rankings</strong> or <strong>Draft</strong> tabs to start your draft.
+                    </p>
+
+                    <div id="step4Settings">
+                        <p id="step4NoSync" style="color: #64748b; font-style: italic;">
+                            Connect Yahoo league in Step 1 to configure weights.
+                        </p>
+
+                        <!-- Hitter/Pitcher Split (auction only) -->
+                        <div id="step4SplitRow" class="hidden" style="margin-bottom: 16px;">
+                            <label for="step4HitterPitcherSplit" style="font-weight: 600; margin-bottom: 4px; display: block;">Hitter/Pitcher Split:</label>
+                            <select id="step4HitterPitcherSplit" style="min-width: 180px;">
+                                <option value="50/50">50% / 50%</option>
+                                <option value="60/40" selected>60% / 40%</option>
+                                <option value="65/35">65% / 35% (Strategic)</option>
+                                <option value="70/30">70% / 30%</option>
+                            </select>
+                        </div>
+
+                        <!-- Dynamic Category Weights -->
+                        <div id="categoryWeightsContainer"></div>
+
+                        <!-- Save & Recalculate -->
+                        <div id="step4SaveRow" class="hidden" style="margin-top: 16px;">
+                            <button id="step4SaveBtn" class="btn primary">Save & Recalculate</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Data Management (Danger Zone) -->
+                <div class="setup-step" style="margin-top: 24px; padding: 20px; background: #fecaca; border-radius: 8px; border: 2px solid #dc2626;">
+                    <h3 style="margin: 0 0 12px 0; color: #991b1b;">⚠️ Data Management (Danger Zone)</h3>
+                    <p class="help-text" style="margin-bottom: 15px; color: #7f1d1d;">
+                        <strong>Warning:</strong> This action will permanently delete all stored data, including settings, draft logs, and CSV files.
+                        This cannot be undone!
+                    </p>
+                    <div class="button-group">
+                        <button id="clearStorageBtn" class="btn danger">Clear All Memory</button>
+                    </div>
+                    <div id="storageInfo" class="info-box"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Roto Draft Assistant Tab -->
+        <section id="draft" class="tab-content">
+            <div class="parser-section">
+                <h2>Roto Draft Assistant</h2>
+                <div class="draft-container" style="display: grid; grid-template-columns: 350px 1fr; gap: 20px;">
+                    <!-- Left Column: Input -->
+                    <div class="draft-input-col">
+                        <div class="input-group" style="margin-bottom: 15px;">
+                            <label for="draftTeamName">Your Team Name (in Draft Log):</label>
+                            <input type="text" id="draftTeamName" value="bluezhin" placeholder="e.g. bluezhin or Team 1">
+                        </div>
+
+                        <div class="input-group">
+                            <label for="draftLogInput">Paste Draft Log (Yahoo):</label>
+                            <textarea id="draftLogInput" rows="15" placeholder="Paste the full text from the Yahoo Draft page here...
+(Ctrl+A -> Ctrl+C -> Ctrl+V)"></textarea>
+                        </div>
+                        <div class="button-group">
+                            <button id="processDraftLogBtn" class="btn primary" style="width: 100%;">Process Update</button>
+                        </div>
+                        <div class="button-group" style="margin-top: 10px;">
+                            <button id="syncDraftFromApiBtn" class="btn secondary" style="width: 100%;">Sync from Yahoo API</button>
+                        </div>
+                        <div class="button-group" style="margin-top: 10px;">
+                            <button id="clearDraftLogBtn" class="btn danger" style="width: 100%;">Clear History</button>
+                        </div>
+
+                        <div class="input-group" style="margin-top: 20px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; margin-bottom: 10px;">
+                                <input type="checkbox" id="puntSvToggle">
+                                <strong>Strategy: Punt Saves</strong>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                <input type="checkbox" id="hideDraftedPlayers">
+                                <strong>Hide Drafted Players</strong>
+                            </label>
+                        </div>
+
+                        <!-- My Team Stats -->
+                        <div id="myTeamStats" class="info-box" style="margin-top: 20px; background: #f0fdf4; border-left: 4px solid #16a34a; font-size: 0.85rem;">
+                            <p>No team data yet.</p>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Dual Dashboard -->
+                    <div class="draft-dashboard-col" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+
+                        <!-- List A: Best Value -->
+                        <div class="recommendations-box">
+                            <h3 style="margin-bottom: 15px; font-size: 1.1rem; color: #64748b; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px;">
+                                Best Available (Value)
+                            </h3>
+                            <div id="draftRecommendations" class="recommendations-list"></div>
+                        </div>
+
+                        <!-- List B: Smart Needs -->
+                        <div class="recommendations-box">
+                            <h3 style="margin-bottom: 15px; font-size: 1.1rem; color: #0284c7; border-bottom: 2px solid #0284c7; padding-bottom: 8px;">
+                                Team Needs (Smart)
+                            </h3>
+                            <div id="smartRecommendations" class="recommendation-list"></div>
+
+                            <!-- Roto Scarcity Heatmap -->
+                            <div id="rotoScarcityHeatmap" style="margin-top: 20px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- H2H Draft Assistant Tab -->
+        <section id="h2h-draft" class="tab-content">
+            <div class="parser-section">
+                <h2>H2H Draft Assistant</h2>
+                <div class="draft-container" style="display: grid; grid-template-columns: 350px 1fr; gap: 20px;">
+                    <!-- Left Column: Input -->
+                    <div class="draft-input-col">
+                        <div class="input-group" style="margin-bottom: 15px;">
+                            <label for="h2hDraftTeamName">Your Team Name (in Draft Log):</label>
+                            <input type="text" id="h2hDraftTeamName" value="bluezhin" placeholder="e.g. bluezhin or Team 1">
+                        </div>
+
+                        <div class="input-group">
+                            <label for="h2hDraftLogInput">Paste Draft Log (Yahoo):</label>
+                            <textarea id="h2hDraftLogInput" rows="15" placeholder="Paste the full text from the Yahoo Draft page here...
+(Ctrl+A -> Ctrl+C -> Ctrl+V)"></textarea>
+                        </div>
+                        <div class="button-group">
+                            <button id="h2hProcessDraftLogBtn" class="btn primary" style="width: 100%;">Process Update</button>
+                        </div>
+                        <div class="button-group" style="margin-top: 10px;">
+                            <button id="h2hSyncDraftFromApiBtn" class="btn secondary" style="width: 100%;">Sync from Yahoo API</button>
+                        </div>
+                        <div class="button-group" style="margin-top: 10px;">
+                            <button id="h2hClearDraftLogBtn" class="btn danger" style="width: 100%;">Clear History</button>
+                        </div>
+
+                        <div class="input-group" style="margin-top: 20px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                <input type="checkbox" id="h2hHideDraftedPlayers" checked>
+                                <strong>Hide Drafted Players</strong>
+                            </label>
+                        </div>
+
+                        <!-- My Team Stats -->
+                        <div id="h2hMyTeamStats" class="info-box" style="margin-top: 20px; background: #f0fdf4; border-left: 4px solid #16a34a; font-size: 0.85rem;">
+                            <p>No team data yet.</p>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Dashboard Stack -->
+                    <div class="draft-dashboard-col" style="display: flex; flex-direction: column; gap: 15px;">
+
+                        <!-- Module 3: Active Player Bid Assistant -->
+                        <div class="recommendations-box" id="activeBidAssistant" style="border-left: 4px solid #f59e0b; background: #fffbeb;">
+                            <h3 style="margin-bottom: 10px; font-size: 1.1rem; color: #b45309; border-bottom: 2px solid #fcd34d; padding-bottom: 6px; display: flex; justify-content: space-between;">
+                                <span>Active Player Bid</span>
+                                <span style="font-size: 0.8em; opacity: 0.8;">Live Auction Analysis</span>
+                            </h3>
+
+                            <div class="bid-search-box" style="position: relative; margin-bottom: 10px;">
+                                <input type="text" id="h2hBidSearchInput" placeholder="Enter player name (e.g. Judge)..."
+                                       style="width: 100%; padding: 10px; font-size: 1.1rem; border: 2px solid #fcd34d; border-radius: 6px; outline: none;"
+                                       autocomplete="off">
+                                <div id="h2hBidSearchResults" class="bid-search-results hidden"
+                                     style="position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 100; max-height: 200px; overflow-y: auto;"></div>
+                            </div>
+
+                            <div id="h2hBidAnalysisContent" class="bid-analysis-content hidden" style="background: white; padding: 10px; border-radius: 6px; border: 1px solid #fcd34d;">
+                            </div>
+                        </div>
+
+                        <!-- Module 2: Scarcity Heatmap -->
+                        <div class="recommendations-box">
+                            <h3 style="margin-bottom: 10px; font-size: 1.1rem; color: #64748b; border-bottom: 2px solid #cbd5e1; padding-bottom: 6px;">
+                                Market Status
+                            </h3>
+                            <div id="h2hRecommendations" class="recommendations-list"></div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Roto 5x5 Tab -->
+        <section id="roto" class="tab-content">
+            <div class="players-section">
+                <h2>🏆 Roto 5x5 Rankings</h2>
+
+                <div class="controls-bar">
+                    <div class="input-group inline">
+                        <label for="rotoPositionFilter">Position:</label>
+                        <select id="rotoPositionFilter">
+                            <option value="all">All Players</option>
+                            <optgroup label="Hitters">
+                                <option value="DH">All Hitters (DH)</option>
+                                <option value="C">C</option>
+                                <option value="1B">1B</option>
+                                <option value="2B">2B</option>
+                                <option value="3B">3B</option>
+                                <option value="SS">SS</option>
+                                <option value="CI">CI (1B/3B)</option>
+                                <option value="MI">MI (2B/SS)</option>
+                                <option value="LF">LF</option>
+                                <option value="CF">CF</option>
+                                <option value="RF">RF</option>
+                                <option value="OF">OF</option>
+                            </optgroup>
+                            <optgroup label="Pitchers">
+                                <option value="P">All Pitchers (P)</option>
+                                <option value="SP">SP</option>
+                                <option value="RP">RP</option>
+                            </optgroup>
+                        </select>
+                    </div>
+
+                    <div class="input-group inline" style="display: flex; align-items: center;">
+                        <label style="cursor: pointer; margin: 0; display: flex; align-items: center; gap: 6px; font-weight: normal;">
+                            <input type="checkbox" id="rotoHideDrafted" checked>
+                            Hide Drafted
+                        </label>
+                    </div>
+
+                    <div class="input-group inline">
+                        <label for="rotoSearchPlayer">Search:</label>
+                        <input type="text" id="rotoSearchPlayer" placeholder="Player name...">
+                    </div>
+                </div>
+
+                <div id="rotoNoDataMsg" class="message-box">
+                    <p>No player data loaded. Please import data in the Projections tab first.</p>
+                </div>
+
+                <div id="rotoPlayerTableContainer" class="table-container hidden">
+                    <table id="rotoPlayerTable">
+                        <thead>
+                            <tr>
+                                <th data-sort="rank">#</th>
+                                <th data-sort="name">Name</th>
+                                <th data-sort="team">Team</th>
+                                <th data-sort="positionString">Pos</th>
+                                <th data-sort="value">Value</th>
+                                <th data-sort="zTotal">Z-Total</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- H2H 12-Cat Tab -->
+        <section id="h2h" class="tab-content">
+            <div class="players-section">
+                <h2>⚔️ H2H 6x6 Rankings</h2>
+
+                <div class="controls-bar">
+                    <div class="input-group inline">
+                        <label for="h2hPositionFilter">Position:</label>
+                        <select id="h2hPositionFilter">
+                            <option value="all">All Players</option>
+                            <optgroup label="Hitters">
+                                <option value="DH">All Hitters (DH)</option>
+                                <option value="C">C</option>
+                                <option value="1B">1B</option>
+                                <option value="2B">2B</option>
+                                <option value="3B">3B</option>
+                                <option value="SS">SS</option>
+                                <option value="LF">LF</option>
+                                <option value="CF">CF</option>
+                                <option value="RF">RF</option>
+                                <option value="OF">OF</option>
+                            </optgroup>
+                            <optgroup label="Pitchers">
+                                <option value="P">All Pitchers (P)</option>
+                                <option value="SP">SP</option>
+                                <option value="RP">RP</option>
+                            </optgroup>
+                        </select>
+                    </div>
+
+                    <div class="input-group inline" style="display: flex; align-items: center;">
+                        <label style="cursor: pointer; margin: 0; display: flex; align-items: center; gap: 6px; font-weight: normal;">
+                            <input type="checkbox" id="h2hHideDrafted" checked>
+                            Hide Drafted
+                        </label>
+                    </div>
+
+                    <div class="input-group inline">
+                        <label for="h2hSearchPlayer">Search:</label>
+                        <input type="text" id="h2hSearchPlayer" placeholder="Player name...">
+                    </div>
+                </div>
+
+                <div id="h2hNoDataMsg" class="message-box">
+                    <p>No player data loaded. Please import data in the Projections tab first.</p>
+                </div>
+
+                <div id="h2hPlayerTableContainer" class="table-container hidden">
+                    <table id="h2hPlayerTable">
+                        <thead>
+                            <tr>
+                                <th data-sort="rank">#</th>
+                                <th data-sort="name">Name</th>
+                                <th data-sort="team">Team</th>
+                                <th data-sort="positionString">Pos</th>
+                                <th data-sort="value">Value</th>
+                                <th data-sort="zTotal">Z-Total</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <script src="js/parser.js"></script>
+    <script src="js/yahooParser.js"></script>
+    <script src="js/calculator.js"></script>
+    <script src="js/draftManager.js"></script>
+    <script src="js/yahooApi.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

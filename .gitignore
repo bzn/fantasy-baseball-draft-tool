@@ -1,0 +1,58 @@
+# User-generated data files
+# These CSV files are created by importing FanGraphs and Yahoo data
+# Each user will have their own league data
+data/*.csv
+data/*.json
+
+# Yahoo API credentials and tokens (NEVER commit these)
+api/yahoo-config.php
+
+# Yahoo Draft Log files
+# These are user-specific draft logs imported from Yahoo Fantasy
+*.txt
+!data/README.md
+
+# Claude Code local configuration
+.claude/
+
+# Development documentation (private, not for git)
+docs/
+
+# Backup files
+*.bak
+*.backup
+*.tmp
+*~
+
+# Log files
+*.log
+
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# PHP temporary files
+*.cache
+.phpunit.result.cache
+
+# XAMPP/Apache specific
+.htaccess.bak
+error_log
+php_error.log
+
+# Dependencies (if added in future)
+node_modules/
+vendor/

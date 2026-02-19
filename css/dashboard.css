@@ -1,0 +1,69 @@
+/* ... existing styles ... */
+
+/* Category Balance Dashboard */
+.balance-dashboard {
+    margin-top: 15px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 10px;
+}
+
+.balance-header {
+    font-size: 0.9rem;
+    font-weight: bold;
+    color: #475569;
+    margin-bottom: 8px;
+    text-align: center;
+    border-bottom: 1px solid #f1f5f9;
+    padding-bottom: 5px;
+}
+
+.balance-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr); /* 2 columns for compact view */
+    gap: 8px;
+}
+
+.balance-item {
+    display: flex;
+    flex-direction: column;
+    font-size: 0.75rem;
+}
+
+.balance-label-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 2px;
+    color: #64748b;
+}
+
+.balance-bar-container {
+    height: 6px;
+    background: #f1f5f9;
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+}
+
+.balance-bar {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+/* Z-Score Colors */
+.bar-pos { background-color: #10b981; } /* Green */
+.bar-neg { background-color: #ef4444; } /* Red */
+.bar-neutral { background-color: #94a3b8; } /* Gray */
+
+/* Center line for Z-Score bars */
+.balance-center-line {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background-color: #cbd5e1;
+    z-index: 1;
+}
