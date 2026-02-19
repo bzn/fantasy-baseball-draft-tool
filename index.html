@@ -175,15 +175,22 @@
                 <div class="draft-container" style="display: grid; grid-template-columns: 350px 1fr; gap: 20px;">
                     <!-- Left Column: Input -->
                     <div class="draft-input-col">
-                        <div class="input-group" style="margin-bottom: 15px;">
-                            <label for="draftTeamName">Your Team Name (in Draft Log):</label>
-                            <input type="text" id="draftTeamName" value="bluezhin" placeholder="e.g. bluezhin or Team 1">
+                        <div style="display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 15px;">
+                            <div class="input-group">
+                                <label for="draftTeamName">Your Team Name:</label>
+                                <input type="text" id="draftTeamName" value="bluezhin" placeholder="e.g. bluezhin or Team 1">
+                            </div>
+                            <div class="input-group">
+                                <label for="draftTeamCount">Teams:</label>
+                                <input type="number" id="draftTeamCount" min="4" max="30" style="width: 60px;">
+                            </div>
                         </div>
 
                         <div class="input-group">
                             <label for="draftLogInput">Paste Draft Log (Yahoo):</label>
-                            <textarea id="draftLogInput" rows="15" placeholder="Paste the full text from the Yahoo Draft page here...
-(Ctrl+A -> Ctrl+C -> Ctrl+V)"></textarea>
+                            <small style="color: #aaa; display: block; margin-bottom: 4px;">Go to Yahoo Live Draft → Draft Results tab → Select All (Ctrl+A) → Copy (Ctrl+C) → Paste here (Ctrl+V)</small>
+                            <textarea id="draftLogInput" rows="15" placeholder="From Yahoo Live Draft → Draft Results tab:
+Select All (Ctrl+A) → Copy (Ctrl+C) → Paste here (Ctrl+V)"></textarea>
                         </div>
                         <div class="button-group">
                             <button id="processDraftLogBtn" class="btn primary" style="width: 100%;">Process Update</button>
@@ -196,10 +203,6 @@
                         </div>
 
                         <div class="input-group" style="margin-top: 20px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; margin-bottom: 10px;">
-                                <input type="checkbox" id="puntSvToggle">
-                                <strong>Strategy: Punt Saves</strong>
-                            </label>
                             <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
                                 <input type="checkbox" id="hideDraftedPlayers">
                                 <strong>Hide Drafted Players</strong>
@@ -245,15 +248,22 @@
                 <div class="draft-container" style="display: grid; grid-template-columns: 350px 1fr; gap: 20px;">
                     <!-- Left Column: Input -->
                     <div class="draft-input-col">
-                        <div class="input-group" style="margin-bottom: 15px;">
-                            <label for="h2hDraftTeamName">Your Team Name (in Draft Log):</label>
-                            <input type="text" id="h2hDraftTeamName" value="bluezhin" placeholder="e.g. bluezhin or Team 1">
+                        <div style="display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 15px;">
+                            <div class="input-group">
+                                <label for="h2hDraftTeamName">Your Team Name:</label>
+                                <input type="text" id="h2hDraftTeamName" value="bluezhin" placeholder="e.g. bluezhin or Team 1">
+                            </div>
+                            <div class="input-group">
+                                <label for="h2hDraftTeamCount">Teams:</label>
+                                <input type="number" id="h2hDraftTeamCount" min="4" max="30" style="width: 60px;">
+                            </div>
                         </div>
 
                         <div class="input-group">
                             <label for="h2hDraftLogInput">Paste Draft Log (Yahoo):</label>
-                            <textarea id="h2hDraftLogInput" rows="15" placeholder="Paste the full text from the Yahoo Draft page here...
-(Ctrl+A -> Ctrl+C -> Ctrl+V)"></textarea>
+                            <small style="color: #aaa; display: block; margin-bottom: 4px;">Go to Yahoo Live Draft → Draft Results tab → Select All (Ctrl+A) → Copy (Ctrl+C) → Paste here (Ctrl+V)</small>
+                            <textarea id="h2hDraftLogInput" rows="15" placeholder="From Yahoo Live Draft → Draft Results tab:
+Select All (Ctrl+A) → Copy (Ctrl+C) → Paste here (Ctrl+V)"></textarea>
                         </div>
                         <div class="button-group">
                             <button id="h2hProcessDraftLogBtn" class="btn primary" style="width: 100%;">Process Update</button>

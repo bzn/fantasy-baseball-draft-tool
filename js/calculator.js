@@ -147,9 +147,11 @@ const Calculator = {
             let validCategories = 0;
 
             // Player's volume for rate stat scaling
+            // Use sqrt dampening so low-volume pitchers aren't penalized too harshly
+            // e.g., 50% of mean IP → factor 0.71 (instead of 0.50 with linear)
             const playerVolume = volConfig ? parseFloat(player[volConfig.volumeKey]) || 0 : 0;
             const volumeFactor = (meanVolume > 0 && playerVolume > 0)
-                ? Math.min(1.0, playerVolume / meanVolume)
+                ? Math.min(1.0, Math.sqrt(playerVolume / meanVolume))
                 : 1.0;
 
             categories.forEach(cat => {

@@ -29,7 +29,11 @@ const App = {
             inningsLimit: 1350,
             rosterHitters: 12, // Active hitters (C, 1B, 2B, 3B, SS, CI, MI, LF, CF, RF, OF, Util)
             rosterPitchers: 8,  // Active pitchers (3 SP, 2 RP, 3 P)
-            rosterComposition: ['C', '1B', '2B', '3B', 'SS', 'CI', 'MI', 'LF', 'CF', 'RF', 'OF', 'Util', 'SP', 'SP', 'SP', 'RP', 'RP', 'P', 'P', 'P', 'BN', 'BN', 'BN', 'BN', 'BN', 'BN', 'IL', 'IL', 'IL', 'NA']
+            rosterComposition: ['C', '1B', '2B', '3B', 'SS', 'CI', 'MI', 'LF', 'CF', 'RF', 'OF', 'Util', 'SP', 'SP', 'SP', 'RP', 'RP', 'P', 'P', 'P', 'BN', 'BN', 'BN', 'BN', 'BN', 'BN', 'IL', 'IL', 'IL', 'NA'],
+            categoryWeights: {
+                'r': 1.0, 'hr': 1.0, 'rbi': 1.0, 'sb': 1.0, 'avg': 1.0,
+                'w': 1.0, 'sv': 1.0, 'k': 1.0, 'era': 1.0, 'whip': 1.0
+            }
         },
         h2h12: {
             name: 'H2H 6x6',
@@ -64,7 +68,8 @@ const App = {
         this.updateDataInfo();
         this.updateSetupStatus();
         this.applySettingsToUI();
-        this.updateDraftAssistantUI();
+        this.updateDraftAssistantUI('roto5x5');
+        this.updateDraftAssistantUI('h2h12');
 
         // Restore tab state from saved league settings
         const savedLeague = localStorage.getItem('yahoo_league_settings');
@@ -108,9 +113,16 @@ const App = {
                 this.updateDraftAssistantUI('roto5x5');
             }
         });
+        document.getElementById('draftTeamCount')?.addEventListener('change', (e) => {
+            const count = parseInt(e.target.value);
+            if (count >= 4 && count <= 30) {
+                this.leagueSettings.roto5x5.teams = count;
+                localStorage.setItem('fantasy_settings', JSON.stringify(this.leagueSettings));
+                this.calculateValues();
+            }
+        });
         // Draft Assistant Checkbox (ROTO)
         document.getElementById('hideDraftedPlayers')?.addEventListener('change', (e) => {
-             // Sync with Roto table checkbox if needed, or just update UI
              this.updateDraftAssistantUI('roto5x5');
         });
 
@@ -124,17 +136,19 @@ const App = {
                 this.updateDraftAssistantUI('h2h12');
             }
         });
+        document.getElementById('h2hDraftTeamCount')?.addEventListener('change', (e) => {
+            const count = parseInt(e.target.value);
+            if (count >= 4 && count <= 30) {
+                this.leagueSettings.h2h12.teams = count;
+                localStorage.setItem('fantasy_settings', JSON.stringify(this.leagueSettings));
+                this.calculateValues();
+            }
+        });
         // Draft Assistant Checkbox (H2H)
         document.getElementById('h2hHideDraftedPlayers')?.addEventListener('change', (e) => {
              this.updateDraftAssistantUI('h2h12');
         });
         
-        // Punt SV Toggle
-        document.getElementById('puntSvToggle')?.addEventListener('change', (e) => {
-            this.puntSvMode = e.target.checked;
-            this.updateDraftRecommendations('roto5x5');
-        });
-
         // H2H 12-Cat table events
         document.getElementById('h2hPositionFilter').addEventListener('change', () => this.updateH2HTable());
         document.getElementById('h2hSearchPlayer').addEventListener('input', (e) => this.searchPlayers('h2h', e.target.value));
@@ -390,7 +404,7 @@ const App = {
         // Always use hardcoded Scarcity Tiers (not user-configurable)
         this.leagueSettings.scarcityTiers = {
             h2h12: [30, 20, 15, 10, 5, 3],
-            roto5x5: [2.0, 1.0, 0.0, -1.0, -2.0, -3.0]
+            roto5x5: [8, 6, 5, 3, 2, 1, 0]
         };
     },
 
@@ -415,7 +429,8 @@ const App = {
         if (container) {
             const weights = {};
             container.querySelectorAll('input[data-cat]').forEach(input => {
-                weights[input.dataset.cat] = parseFloat(input.value) || 1.0;
+                const val = parseFloat(input.value);
+                weights[input.dataset.cat] = isNaN(val) ? 1.0 : val;
             });
             if (Object.keys(weights).length > 0) {
                 prev.categoryWeights = weights;
@@ -452,13 +467,15 @@ const App = {
         if (typeof YahooApi !== 'undefined' && YahooApi._currentSettings) {
             leagueKey = YahooApi._currentSettings.scoring_type === 'head' ? 'h2h12' : 'roto5x5';
         } else {
-            // Fallback: check if Calculator.LEAGUES was updated from defaults
-            // If categoryWeights exist on any league, that league was configured
-            for (const key of ['h2h12', 'roto5x5']) {
-                if (this.leagueSettings[key].categoryWeights &&
-                    Calculator.LEAGUES[key]) {
-                    leagueKey = key;
-                    break;
+            // Fallback: check if settings were previously saved to localStorage
+            const stored = localStorage.getItem('fantasy_settings');
+            if (stored) {
+                const saved = JSON.parse(stored);
+                for (const key of ['h2h12', 'roto5x5']) {
+                    if (saved[key]?.categoryWeights && Calculator.LEAGUES[key]) {
+                        leagueKey = key;
+                        break;
+                    }
                 }
             }
         }
@@ -2378,8 +2395,6 @@ const App = {
     // Draft Assistant Methods
     // ==========================================
 
-    puntSvMode: false, // Toggle state for "Punt SV" strategy
-
     /**
      * Process draft log text
      * @param {string} leagueType - 'roto5x5' or 'h2h12'
@@ -2392,7 +2407,14 @@ const App = {
         const text = inputEl.value;
         // Use the correct player pool for matching
         const playerPool = this.currentData.combined[leagueType] || this.currentData.combined.roto5x5;
-        
+
+        // Sync team name from input field before processing
+        const nameInputId = leagueType === 'h2h12' ? 'h2hDraftTeamName' : 'draftTeamName';
+        const nameInput = document.getElementById(nameInputId);
+        if (nameInput && nameInput.value.trim()) {
+            DraftManager.setTeamName(nameInput.value.trim(), leagueType);
+        }
+
         const result = DraftManager.processDraftLog(text, playerPool, leagueType);
         
         if (result.success) {
@@ -2606,7 +2628,7 @@ const App = {
         const nameInputId = isH2H ? 'h2hDraftTeamName' : 'draftTeamName';
         
         const stats = DraftManager.getMyTeamStats(leagueType);
-        const limit = this.leagueSettings.roto5x5.inningsLimit || 1350;
+        const limit = this.leagueSettings[leagueType]?.inningsLimit || 1350;
         const ipPct = Math.min(100, (stats.ip / limit) * 100);
         const ipColor = stats.ip > limit ? '#ef4444' : stats.ip > limit * 0.9 ? '#f59e0b' : '#3b82f6';
         
@@ -2615,6 +2637,13 @@ const App = {
         if (nameInput && document.activeElement !== nameInput) {
              const state = DraftManager._getState(leagueType);
              nameInput.value = state.myTeamName || 'bluezhin';
+        }
+
+        // Update Teams count input if not focused
+        const teamCountId = isH2H ? 'h2hDraftTeamCount' : 'draftTeamCount';
+        const teamCountInput = document.getElementById(teamCountId);
+        if (teamCountInput && document.activeElement !== teamCountInput) {
+            teamCountInput.value = this.leagueSettings[leagueType]?.teams || 12;
         }
 
         // Update My Team Stats display
@@ -2759,7 +2788,7 @@ const App = {
         if (!isH2H) {
             const rotoScarcityContainer = document.getElementById('rotoScarcityHeatmap');
             if (rotoScarcityContainer) {
-                const tiers = this.leagueSettings.scarcityTiers?.roto5x5 || [2.0, 1.0, 0.0, -1.0, -2.0, -3.0];
+                const tiers = this.leagueSettings.scarcityTiers?.roto5x5 || [8, 6, 5, 3, 2, 1, 0];
                 const allPlayers = this.currentData.combined[leagueType] || [];
                 const scarcity = DraftManager.getScarcityData(allPlayers, leagueType, tiers);
                 rotoScarcityContainer.innerHTML = this.renderScarcityHeatmap(scarcity, false, tiers);
@@ -2849,7 +2878,7 @@ const App = {
         if (!activeTiers) {
             activeTiers = isH2H 
                 ? [30, 20, 15, 10, 5, 3] 
-                : [1.0, 0.0, -1.0, -2.0, -3.0, -4.0];
+                : [8, 6, 5, 3, 2, 1, 0];
         }
 
         const headers = activeTiers.map(t => isH2H ? `$${t}+` : `Z>${t}`);
@@ -2977,154 +3006,192 @@ const App = {
     },
 
     /**
+     * Calculate dynamic position caps from rosterComposition
+     */
+    calculatePositionCaps(leagueType) {
+        const composition = this.leagueSettings[leagueType]?.rosterComposition || [];
+        const caps = { 'C': 0, '1B': 0, '2B': 0, '3B': 0, 'SS': 0, 'OF': 0, 'SP': 0, 'RP': 0 };
+
+        let bnCount = 0;
+        composition.forEach(slot => {
+            switch (slot) {
+                case 'C': caps['C']++; break;
+                case '1B': caps['1B']++; break;
+                case '2B': caps['2B']++; break;
+                case '3B': caps['3B']++; break;
+                case 'SS': caps['SS']++; break;
+                case 'LF': case 'CF': case 'RF': case 'OF': caps['OF']++; break;
+                case 'CI': caps['1B']++; caps['3B']++; break;
+                case 'MI': caps['2B']++; caps['SS']++; break;
+                case 'Util': // Counts toward all hitter positions
+                    ['C','1B','2B','3B','SS','OF'].forEach(p => caps[p]++);
+                    break;
+                case 'SP': caps['SP']++; break;
+                case 'RP': caps['RP']++; break;
+                case 'P': caps['SP']++; caps['RP']++; break;
+                case 'BN': bnCount++; break;
+            }
+        });
+
+        // Distribute BN slots 60/40 hitter/pitcher
+        const bnHitter = Math.round(bnCount * 0.6);
+        const bnPitcher = bnCount - bnHitter;
+        ['C','1B','2B','3B','SS','OF'].forEach(p => caps[p] += Math.round(bnHitter / 6));
+        caps['SP'] += Math.round(bnPitcher * 0.6);
+        caps['RP'] += bnPitcher - Math.round(bnPitcher * 0.6);
+
+        return caps;
+    },
+
+    /**
+     * Calculate category need multiplier based on team weaknesses
+     * Uses categoryWeights to respect user preferences (weight=0 means ignore)
+     */
+    calculateCategoryNeedMultiplier(player, myTeam, leagueType) {
+        const league = Calculator.LEAGUES[leagueType];
+        if (!league || myTeam.length === 0) return 1.0;
+
+        const weights = this.leagueSettings[leagueType]?.categoryWeights || {};
+        const categories = player.type === 'hitter' ? league.hitting : league.pitching;
+
+        // Sum z-scores for each category across my team
+        const teamCatZ = {};
+        categories.forEach(cat => {
+            const key = 'z_' + cat;
+            teamCatZ[cat] = myTeam.reduce((sum, p) => sum + (parseFloat(p[key]) || 0), 0);
+        });
+
+        // Filter to categories with weight > 0
+        const activeCats = categories.filter(cat => (weights[cat] ?? 1.0) > 0);
+        if (activeCats.length === 0) return 1.0;
+
+        const zValues = activeCats.map(cat => teamCatZ[cat]);
+        const maxZ = Math.max(...zValues);
+        const minZ = Math.min(...zValues);
+        const range = maxZ - minZ;
+
+        if (range < 0.5) return 1.0; // Team is balanced enough
+
+        // Calculate need weights: weaker categories get higher weights
+        const needWeights = {};
+        activeCats.forEach(cat => {
+            const catWeight = weights[cat] ?? 1.0;
+            needWeights[cat] = (1 + 0.5 * (maxZ - teamCatZ[cat]) / range) * catWeight;
+        });
+
+        // Score player's contribution to needed categories
+        let weightedScore = 0;
+        let baseScore = 0;
+        activeCats.forEach(cat => {
+            const pZ = parseFloat(player['z_' + cat]) || 0;
+            weightedScore += pZ * needWeights[cat];
+            baseScore += pZ;
+        });
+
+        if (Math.abs(baseScore) < 0.1) return 1.0;
+
+        const multiplier = Math.max(0.8, Math.min(1.5, weightedScore / baseScore));
+        if (multiplier > 1.2) player.isNeedFit = true;
+
+        return multiplier;
+    },
+
+    /**
      * Calculate Team Need Score (Smart Logic)
      */
     getTeamNeedScore(player, leagueType = 'roto5x5') {
-        // Base score from Z-Total (modified by Punt SV if active)
+        // Base score from weighted Z-Total
         let score = this.getRecommendationScore(player, leagueType);
-        
-        // Correctly access state for the specific league
+
         const state = DraftManager._getState(leagueType);
         const myTeam = state.myTeam || [];
-        
+
         player.isNeedFit = false;
         player.isScarcityPick = false;
 
         // --- 1. ROSTER BALANCE (Position Need) ---
-        // Simple heuristic for position caps
         const posCounts = {
-            'C': 0, '1B': 0, '2B': 0, '3B': 0, 'SS': 0, 'OF': 0, 
+            'C': 0, '1B': 0, '2B': 0, '3B': 0, 'SS': 0, 'OF': 0,
             'SP': 0, 'RP': 0
         };
-        
+
         myTeam.forEach(p => {
             if (p.positions) {
-                // Handle both array and string formats for positions
                 let posList = [];
                 if (Array.isArray(p.positions)) posList = p.positions;
                 else if (typeof p.positions === 'string') posList = p.positions.split(/,|\||\//).map(s => s.trim());
                 else if (typeof p.positionString === 'string') posList = p.positionString.split(/,|\||\//).map(s => s.trim());
-                
-                posList.forEach(pos => { 
+
+                posList.forEach(pos => {
                     const trimPos = pos.trim();
-                    if(posCounts[trimPos] !== undefined) posCounts[trimPos]++; 
+                    if (posCounts[trimPos] !== undefined) posCounts[trimPos]++;
                 });
             }
             if (p.isPitcherSP) posCounts.SP++;
             if (p.isPitcherRP) posCounts.RP++;
         });
 
-        // Define Soft Caps (Start + Bench)
-        const caps = { 'C': 2, '1B': 2, '2B': 2, '3B': 2, 'SS': 2, 'OF': 5, 'SP': 8, 'RP': 4 };
-        
-        // Multiplier logic
+        // Dynamic position caps from roster composition
+        const caps = this.calculatePositionCaps(leagueType);
+
         let posMultiplier = 1.0;
-        
+
         if (player.type === 'hitter') {
             const positions = player.positions || [];
             let isSaturated = true;
             let isHighNeed = false;
-            
-            // Check if ANY of player's positions are open
+
             for (const pos of positions) {
-                if (posCounts[pos] < caps[pos]) {
-                    isSaturated = false; // Has space
-                }
-                if (posCounts[pos] === 0) { // Empty position!
-                    isHighNeed = true;
-                }
+                if (posCounts[pos] < caps[pos]) isSaturated = false;
+                if (posCounts[pos] === 0) isHighNeed = true;
             }
-            
+
             if (isHighNeed) {
-                posMultiplier = 1.2; // Boost 20%
+                posMultiplier = 1.2;
                 player.isNeedFit = true;
             } else if (isSaturated) {
-                posMultiplier = 0.8; // Penalty 20%
+                posMultiplier = 0.8;
             }
         } else {
-            // Pitcher Needs
+            // Pitcher position + innings limit check
             if (player.isPitcherSP && posCounts.SP >= caps.SP) posMultiplier = 0.8;
             if (player.isPitcherRP && posCounts.RP >= caps.RP) posMultiplier = 0.8;
-            
-            // Check Innings Limit again for Smart Score
+
             const stats = DraftManager.getMyTeamStats(leagueType);
-            const limit = this.leagueSettings.roto5x5.inningsLimit || 1400;
+            const limit = this.leagueSettings[leagueType]?.inningsLimit || 1400;
             if (stats.ip > limit * 0.95 && player.isPitcherSP) {
-                posMultiplier = 0.5; // Heavy penalty if capping out
+                posMultiplier = 0.5;
             }
         }
-        
+
         score *= posMultiplier;
 
-        // --- 2. STAT NEED (Category Balancing) ---
-        // If we are low on SB or SV (unless punting SV), boost players who provide them
-        const stats = DraftManager.getMyTeamStats(leagueType);
-        // Assuming average targets (approximate for mid-season)
-        const targets = { sb: 80, hr: 200, sv: 50 }; 
-        
-        if (player.sb > 20 && stats.sb < 10) {
-            score *= 1.15; // Boost for speed if we have none
-            player.isNeedFit = true;
-        }
-        
+        // --- 2. CATEGORY NEED (Dynamic Balancing) ---
+        score *= this.calculateCategoryNeedMultiplier(player, myTeam, leagueType);
+
         return score;
     },
 
     /**
      * Calculate Recommendation Score
-     * Implements "Punt SV" logic with Innings Cap awareness
+     * Applies category weights to z-score calculation
      */
     getRecommendationScore(player, leagueType = 'roto5x5') {
-        let score = parseFloat(player.zTotal) || 0;
-        const stats = DraftManager.getMyTeamStats(leagueType);
-        const ipLimit = this.leagueSettings.roto5x5.inningsLimit || 1400;
-        const projectedIp = stats.ip;
-        
-        // --- INNINGS CAP LOGIC ---
-        // If we are over or near the limit, we must devalue SPs
-        if (player.type === 'pitcher') {
-            const isSP = player.isPitcherSP || (player.gs > 0 && player.gs > player.g * 0.5);
-            const playerIp = player.ip || 0;
-            
-            // Check if adding this player pushes us way over limit
-            // Soft buffer: allow up to 105% before hard penalty
-            if (projectedIp + playerIp > ipLimit * 1.05) {
-                if (isSP) {
-                    score -= 5.0; // Heavy penalty for busting cap with an SP
-                } else {
-                    // RPs are fine, they are efficient innings eaters
-                    score += 1.0; 
-                }
-            } else if (projectedIp > ipLimit * 0.9) {
-                // Warning zone: Prefer RPs over SPs
-                if (isSP) score -= 1.0;
-                else score += 0.5;
-            }
+        const league = Calculator.LEAGUES[leagueType];
+        const weights = this.leagueSettings[leagueType]?.categoryWeights || {};
+
+        // Recalculate weighted zTotal based on category weights
+        let score = 0;
+        if (league) {
+            const categories = player.type === 'hitter' ? league.hitting : league.pitching;
+            categories.forEach(cat => {
+                const w = weights[cat] ?? 1.0;
+                score += (parseFloat(player['z_' + cat]) || 0) * w;
+            });
+        } else {
+            score = parseFloat(player.zTotal) || 0;
         }
 
-        // --- PUNT SV STRATEGY ---
-        if (this.puntSvMode && player.type === 'pitcher') {
-            // Target: Avoid paying for Saves.
-            // We do NOT artificially boost RPs here, because their Z-scores (if calculated correctly)
-            // should already reflect their value in ERA/WHIP/K.
-            // We only want to remove the "Saves premium" from Closers.
-            
-            // 1. Devalue Saves component from Z-Score
-            // We assume standard Z-score includes SV. We penalize high SV players as "wasted value"
-            if ((player.sv || 0) > 5) {
-                // Heavier penalty: average closer gets ~20-30 SV.
-                // If z-score is 4.0 and half comes from SV, we want to knock him down.
-                score -= (player.sv * 0.05); 
-            }
-            
-            // 2. SPs: Must be elite to be worth it in Punt SV (protect ratios)
-            if (player.isPitcherSP) {
-                if ((player.era || 4.0) > 3.80 || (player.whip || 1.3) > 1.25) {
-                    score -= 1.0; // Avoid ratio-killers
-                }
-            }
-        }
-        
         return score;
     }
 };

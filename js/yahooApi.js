@@ -524,6 +524,35 @@ const YahooApi = {
 
         // Update tab visibility for this league type
         App.updateTabsForLeague(leagueKey);
+
+        // Auto-sync my team name from Yahoo
+        this.syncMyTeamName(settings);
+    },
+
+    /**
+     * Fetch my team name from Yahoo and set it in DraftManager
+     */
+    async syncMyTeamName(settings) {
+        if (!this.selectedLeague) return;
+
+        const leagueKey = settings.scoring_type === 'head' ? 'h2h12' : 'roto5x5';
+
+        try {
+            const teams = await this.fetchTeams(this.selectedLeague.league_key);
+            const myTeam = teams?.find(t => t.is_owned_by_current_login);
+            if (myTeam && typeof DraftManager !== 'undefined') {
+                DraftManager.setTeamName(myTeam.name, leagueKey);
+
+                // Update Draft page input field if not currently focused
+                const nameInputId = leagueKey === 'h2h12' ? 'h2hDraftTeamName' : 'draftTeamName';
+                const nameInput = document.getElementById(nameInputId);
+                if (nameInput && document.activeElement !== nameInput) {
+                    nameInput.value = myTeam.name;
+                }
+            }
+        } catch (e) {
+            console.error('Failed to sync team name:', e);
+        }
     },
 
     /**

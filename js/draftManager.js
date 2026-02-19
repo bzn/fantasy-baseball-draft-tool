@@ -128,16 +128,26 @@ const DraftManager = {
      */
     processDraftLog(text, allPlayers, leagueType = 'roto5x5') {
         if (!text || !text.trim()) return { success: false, message: 'Empty text' };
-        
+
         const state = this._getState(leagueType);
+        const savedTeamName = state.myTeamName;
         state.lastProcessedText = text;
         const lines = text.trim().split('\n');
-        
-        // 0. Attempt to auto-detect team name
-        const detectedName = this.detectTeamName(lines);
-        if (detectedName && detectedName !== state.myTeamName) {
-            console.log(`[${leagueType}] Auto-detected team name: ${detectedName}`);
-            state.myTeamName = detectedName;
+
+        // Clear existing state before reprocessing (full paste = source of truth)
+        state.takenPlayers.clear();
+        state.myTeam = [];
+        state.draftLog = [];
+        state.myTeamName = savedTeamName; // Preserve team name
+
+        // 0. Attempt to auto-detect team name (only if current name is default/empty)
+        const isDefaultName = !savedTeamName || savedTeamName === 'bluezhin';
+        if (isDefaultName) {
+            const detectedName = this.detectTeamName(lines);
+            if (detectedName) {
+                console.log(`[${leagueType}] Auto-detected team name: ${detectedName}`);
+                state.myTeamName = detectedName;
+            }
         }
 
         let processedCount = 0;
@@ -155,6 +165,9 @@ const DraftManager = {
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
             if (line.length < 5) continue;
+
+            // Stop processing draft picks when we hit non-results sections
+            if (line.startsWith('My Queue') || line.startsWith('My Team')) break;
             
             let pickNum = 0;
             let rawName = '';
@@ -203,9 +216,14 @@ const DraftManager = {
             
             if (matched) {
                 // If manager is detected, check if it's me
+                // Use word-boundary matching to avoid "Team 1" matching "Team 10"
                 let isMyPick = false;
                 if (manager && state.myTeamName) {
-                    isMyPick = manager.includes(state.myTeamName) || state.myTeamName.includes(manager);
+                    const managerLower = manager.toLowerCase().trim();
+                    const myNameLower = state.myTeamName.toLowerCase().trim();
+                    // Exact match, or manager starts with myName followed by non-alphanumeric (e.g. space+rank)
+                    const namePattern = new RegExp('^' + myNameLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\s|$)', 'i');
+                    isMyPick = managerLower === myNameLower || namePattern.test(managerLower);
                 }
 
                 this.markPlayerAsTaken(rawName, teamCode, allPlayers, isMyPick, pickNum, cost, leagueType);
@@ -213,10 +231,12 @@ const DraftManager = {
             }
         }
         
-        // 2. Process "My Team" section (Backup)
-        const myTeamIndex = lines.findIndex(l => l.includes('My Team') && l.includes('of'));
-        if (myTeamIndex !== -1) {
-            this.parseMyTeamSection(lines, myTeamIndex + 1, allPlayers, leagueType);
+        // 2. Process "My Team" section (Fallback only if no picks matched via Draft Results)
+        if (state.myTeam.length === 0) {
+            const myTeamIndex = lines.findIndex(l => l.includes('My Team') && l.includes('of'));
+            if (myTeamIndex !== -1) {
+                this.parseMyTeamSection(lines, myTeamIndex + 1, allPlayers, leagueType);
+            }
         }
         
         this.saveState();
@@ -278,7 +298,7 @@ const DraftManager = {
         
         for (let i = startIndex; i < Math.min(startIndex + 40, lines.length); i++) {
             const line = lines[i].trim();
-            if (line.startsWith('BN') || line.startsWith('Updates') || line === 'Pos' || !line) continue;
+            if (line.startsWith('Updates') || line === 'Pos' || line === 'Player' || line === 'Salary' || !line) continue;
             if (line.includes('joined')) break;
             
             const match = line.match(/\s+(.+?)([A-Z]{2,3}|ATH|WAS|CWS|AZ)\s+-\s+/);
@@ -563,7 +583,7 @@ const DraftManager = {
         if (!tierVals) {
              tierVals = isH2H
                 ? [30, 20, 15, 10, 5, 3]
-                : [2.0, 1.0, 0.0, -1.0, -2.0, -3.0];
+                : [8, 6, 5, 3, 2, 1, 0];
         }
 
         const scarcity = {};
