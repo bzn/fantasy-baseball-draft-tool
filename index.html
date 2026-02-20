@@ -15,7 +15,7 @@
 
         <nav class="tabs">
             <button class="tab-btn active" data-tab="setup">Setup</button>
-            <button class="tab-btn" data-tab="roto" id="tabRankings" disabled>Rankings</button>
+            <button class="tab-btn" data-tab="rankings" id="tabRankings" disabled>Rankings</button>
             <button class="tab-btn" data-tab="draft" id="tabDraft" disabled>Draft</button>
         </nav>
 
@@ -168,10 +168,10 @@
             </div>
         </section>
 
-        <!-- Roto Draft Assistant Tab -->
+        <!-- Draft Assistant Tab -->
         <section id="draft" class="tab-content">
             <div class="parser-section">
-                <h2>Roto Draft Assistant</h2>
+                <h2 id="draftTitle">Draft Assistant</h2>
                 <div class="draft-container" style="display: grid; grid-template-columns: 350px 1fr; gap: 20px;">
                     <!-- Left Column: Input -->
                     <div class="draft-input-col">
@@ -215,123 +215,71 @@ Select All (Ctrl+A) → Copy (Ctrl+C) → Paste here (Ctrl+V)"></textarea>
                         </div>
                     </div>
 
-                    <!-- Right Column: Dual Dashboard -->
-                    <div class="draft-dashboard-col" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-
-                        <!-- List A: Best Value -->
-                        <div class="recommendations-box">
-                            <h3 style="margin-bottom: 15px; font-size: 1.1rem; color: #64748b; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px;">
-                                Best Available (Value)
-                            </h3>
-                            <div id="draftRecommendations" class="recommendations-list"></div>
-                        </div>
-
-                        <!-- List B: Smart Needs -->
-                        <div class="recommendations-box">
-                            <h3 style="margin-bottom: 15px; font-size: 1.1rem; color: #0284c7; border-bottom: 2px solid #0284c7; padding-bottom: 8px;">
-                                Team Needs (Smart)
-                            </h3>
-                            <div id="smartRecommendations" class="recommendation-list"></div>
-
-                            <!-- Roto Scarcity Heatmap -->
-                            <div id="rotoScarcityHeatmap" style="margin-top: 20px;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- H2H Draft Assistant Tab -->
-        <section id="h2h-draft" class="tab-content">
-            <div class="parser-section">
-                <h2>H2H Draft Assistant</h2>
-                <div class="draft-container" style="display: grid; grid-template-columns: 350px 1fr; gap: 20px;">
-                    <!-- Left Column: Input -->
-                    <div class="draft-input-col">
-                        <div style="display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 15px;">
-                            <div class="input-group">
-                                <label for="h2hDraftTeamName">Your Team Name:</label>
-                                <input type="text" id="h2hDraftTeamName" value="bluezhin" placeholder="e.g. bluezhin or Team 1">
-                            </div>
-                            <div class="input-group">
-                                <label for="h2hDraftTeamCount">Teams:</label>
-                                <input type="number" id="h2hDraftTeamCount" min="4" max="30" style="width: 60px;">
-                            </div>
-                        </div>
-
-                        <div class="input-group">
-                            <label for="h2hDraftLogInput">Paste Draft Log (Yahoo):</label>
-                            <small style="color: #aaa; display: block; margin-bottom: 4px;">Go to Yahoo Live Draft → Draft Results tab → Select All (Ctrl+A) → Copy (Ctrl+C) → Paste here (Ctrl+V)</small>
-                            <textarea id="h2hDraftLogInput" rows="15" placeholder="From Yahoo Live Draft → Draft Results tab:
-Select All (Ctrl+A) → Copy (Ctrl+C) → Paste here (Ctrl+V)"></textarea>
-                        </div>
-                        <div class="button-group">
-                            <button id="h2hProcessDraftLogBtn" class="btn primary" style="width: 100%;">Process Update</button>
-                        </div>
-                        <div class="button-group" style="margin-top: 10px;">
-                            <button id="h2hSyncDraftFromApiBtn" class="btn secondary" style="width: 100%;">Sync from Yahoo API</button>
-                        </div>
-                        <div class="button-group" style="margin-top: 10px;">
-                            <button id="h2hClearDraftLogBtn" class="btn danger" style="width: 100%;">Clear History</button>
-                        </div>
-
-                        <div class="input-group" style="margin-top: 20px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                                <input type="checkbox" id="h2hHideDraftedPlayers" checked>
-                                <strong>Hide Drafted Players</strong>
-                            </label>
-                        </div>
-
-                        <!-- My Team Stats -->
-                        <div id="h2hMyTeamStats" class="info-box" style="margin-top: 20px; background: #f0fdf4; border-left: 4px solid #16a34a; font-size: 0.85rem;">
-                            <p>No team data yet.</p>
-                        </div>
-                    </div>
-
-                    <!-- Right Column: Dashboard Stack -->
+                    <!-- Right Column: Dashboard -->
                     <div class="draft-dashboard-col" style="display: flex; flex-direction: column; gap: 15px;">
 
-                        <!-- Module 3: Active Player Bid Assistant -->
-                        <div class="recommendations-box" id="activeBidAssistant" style="border-left: 4px solid #f59e0b; background: #fffbeb;">
+                        <!-- Active Player Bid Assistant (auction only) -->
+                        <div class="recommendations-box hidden" id="activeBidAssistant" style="border-left: 4px solid #f59e0b; background: #fffbeb;">
                             <h3 style="margin-bottom: 10px; font-size: 1.1rem; color: #b45309; border-bottom: 2px solid #fcd34d; padding-bottom: 6px; display: flex; justify-content: space-between;">
                                 <span>Active Player Bid</span>
                                 <span style="font-size: 0.8em; opacity: 0.8;">Live Auction Analysis</span>
                             </h3>
 
                             <div class="bid-search-box" style="position: relative; margin-bottom: 10px;">
-                                <input type="text" id="h2hBidSearchInput" placeholder="Enter player name (e.g. Judge)..."
+                                <input type="text" id="bidSearchInput" placeholder="Enter player name (e.g. Judge)..."
                                        style="width: 100%; padding: 10px; font-size: 1.1rem; border: 2px solid #fcd34d; border-radius: 6px; outline: none;"
                                        autocomplete="off">
-                                <div id="h2hBidSearchResults" class="bid-search-results hidden"
+                                <div id="bidSearchResults" class="bid-search-results hidden"
                                      style="position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 100; max-height: 200px; overflow-y: auto;"></div>
                             </div>
 
-                            <div id="h2hBidAnalysisContent" class="bid-analysis-content hidden" style="background: white; padding: 10px; border-radius: 6px; border: 1px solid #fcd34d;">
+                            <div id="bidAnalysisContent" class="bid-analysis-content hidden" style="background: white; padding: 10px; border-radius: 6px; border: 1px solid #fcd34d;">
                             </div>
                         </div>
 
-                        <!-- Module 2: Scarcity Heatmap -->
-                        <div class="recommendations-box">
+                        <!-- Best Available + Smart Needs (side by side) -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                            <!-- List A: Best Value -->
+                            <div class="recommendations-box">
+                                <h3 style="margin-bottom: 15px; font-size: 1.1rem; color: #64748b; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px;">
+                                    Best Available (Value)
+                                </h3>
+                                <div id="draftRecommendations" class="recommendations-list"></div>
+                            </div>
+
+                            <!-- List B: Smart Needs -->
+                            <div class="recommendations-box">
+                                <h3 style="margin-bottom: 15px; font-size: 1.1rem; color: #0284c7; border-bottom: 2px solid #0284c7; padding-bottom: 8px;">
+                                    Team Needs (Smart)
+                                </h3>
+                                <div id="smartRecommendations" class="recommendation-list"></div>
+                            </div>
+                        </div>
+
+                        <!-- Market Status (auction only) -->
+                        <div class="recommendations-box hidden" id="marketStatusSection">
                             <h3 style="margin-bottom: 10px; font-size: 1.1rem; color: #64748b; border-bottom: 2px solid #cbd5e1; padding-bottom: 6px;">
                                 Market Status
                             </h3>
-                            <div id="h2hRecommendations" class="recommendations-list"></div>
+                            <div id="marketRecommendations" class="recommendations-list"></div>
                         </div>
 
+                        <!-- Scarcity Heatmap (both modes) -->
+                        <div id="scarcityHeatmap" style="margin-top: 10px;"></div>
                     </div>
                 </div>
             </div>
         </section>
 
-        <!-- Roto 5x5 Tab -->
-        <section id="roto" class="tab-content">
+        <!-- Rankings Tab -->
+        <section id="rankings" class="tab-content">
             <div class="players-section">
-                <h2>🏆 Roto 5x5 Rankings</h2>
+                <h2 id="rankingsTitle">Player Rankings</h2>
 
                 <div class="controls-bar">
                     <div class="input-group inline">
-                        <label for="rotoPositionFilter">Position:</label>
-                        <select id="rotoPositionFilter">
+                        <label for="positionFilter">Position:</label>
+                        <select id="positionFilter">
                             <option value="all">All Players</option>
                             <optgroup label="Hitters">
                                 <option value="DH">All Hitters (DH)</option>
@@ -357,88 +305,23 @@ Select All (Ctrl+A) → Copy (Ctrl+C) → Paste here (Ctrl+V)"></textarea>
 
                     <div class="input-group inline" style="display: flex; align-items: center;">
                         <label style="cursor: pointer; margin: 0; display: flex; align-items: center; gap: 6px; font-weight: normal;">
-                            <input type="checkbox" id="rotoHideDrafted" checked>
+                            <input type="checkbox" id="hideDrafted" checked>
                             Hide Drafted
                         </label>
                     </div>
 
                     <div class="input-group inline">
-                        <label for="rotoSearchPlayer">Search:</label>
-                        <input type="text" id="rotoSearchPlayer" placeholder="Player name...">
+                        <label for="searchPlayer">Search:</label>
+                        <input type="text" id="searchPlayer" placeholder="Player name...">
                     </div>
                 </div>
 
-                <div id="rotoNoDataMsg" class="message-box">
+                <div id="noDataMsg" class="message-box">
                     <p>No player data loaded. Please import data in the Projections tab first.</p>
                 </div>
 
-                <div id="rotoPlayerTableContainer" class="table-container hidden">
-                    <table id="rotoPlayerTable">
-                        <thead>
-                            <tr>
-                                <th data-sort="rank">#</th>
-                                <th data-sort="name">Name</th>
-                                <th data-sort="team">Team</th>
-                                <th data-sort="positionString">Pos</th>
-                                <th data-sort="value">Value</th>
-                                <th data-sort="zTotal">Z-Total</th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
-                </div>
-            </div>
-        </section>
-
-        <!-- H2H 12-Cat Tab -->
-        <section id="h2h" class="tab-content">
-            <div class="players-section">
-                <h2>⚔️ H2H 6x6 Rankings</h2>
-
-                <div class="controls-bar">
-                    <div class="input-group inline">
-                        <label for="h2hPositionFilter">Position:</label>
-                        <select id="h2hPositionFilter">
-                            <option value="all">All Players</option>
-                            <optgroup label="Hitters">
-                                <option value="DH">All Hitters (DH)</option>
-                                <option value="C">C</option>
-                                <option value="1B">1B</option>
-                                <option value="2B">2B</option>
-                                <option value="3B">3B</option>
-                                <option value="SS">SS</option>
-                                <option value="LF">LF</option>
-                                <option value="CF">CF</option>
-                                <option value="RF">RF</option>
-                                <option value="OF">OF</option>
-                            </optgroup>
-                            <optgroup label="Pitchers">
-                                <option value="P">All Pitchers (P)</option>
-                                <option value="SP">SP</option>
-                                <option value="RP">RP</option>
-                            </optgroup>
-                        </select>
-                    </div>
-
-                    <div class="input-group inline" style="display: flex; align-items: center;">
-                        <label style="cursor: pointer; margin: 0; display: flex; align-items: center; gap: 6px; font-weight: normal;">
-                            <input type="checkbox" id="h2hHideDrafted" checked>
-                            Hide Drafted
-                        </label>
-                    </div>
-
-                    <div class="input-group inline">
-                        <label for="h2hSearchPlayer">Search:</label>
-                        <input type="text" id="h2hSearchPlayer" placeholder="Player name...">
-                    </div>
-                </div>
-
-                <div id="h2hNoDataMsg" class="message-box">
-                    <p>No player data loaded. Please import data in the Projections tab first.</p>
-                </div>
-
-                <div id="h2hPlayerTableContainer" class="table-container hidden">
-                    <table id="h2hPlayerTable">
+                <div id="playerTableContainer" class="table-container hidden">
+                    <table id="playerTable">
                         <thead>
                             <tr>
                                 <th data-sort="rank">#</th>

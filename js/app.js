@@ -7,10 +7,7 @@ const App = {
         hitters: null,      // Original FanGraphs hitter projections
         pitchers: null,     // Original FanGraphs pitcher projections
         merged: null,       // Merged data (FanGraphs + Yahoo positions)
-        combined: {
-            roto5x5: [],
-            h2h12: []
-        }
+        combined: []        // Single combined player list for active league
     },
 
     // Sort state
@@ -19,34 +16,22 @@ const App = {
         direction: 'desc' // 'asc' or 'desc'
     },
 
-    // Default league settings
+    // Single active league settings (scoring type and draft type are independent)
     leagueSettings: {
-        roto5x5: {
-            name: 'Roto 5x5',
-            teams: 16,
-            draftType: 'snake',
+        active: {
+            name: '',
+            scoringType: null,   // 'roto' or 'head'
+            draftType: null,     // 'snake' or 'auction'
+            teams: 12,
             budget: 260,
+            hitterPitcherSplit: '60/40',
             inningsLimit: 1350,
-            rosterHitters: 12, // Active hitters (C, 1B, 2B, 3B, SS, CI, MI, LF, CF, RF, OF, Util)
-            rosterPitchers: 8,  // Active pitchers (3 SP, 2 RP, 3 P)
+            rosterHitters: 12,
+            rosterPitchers: 8,
             rosterComposition: ['C', '1B', '2B', '3B', 'SS', 'CI', 'MI', 'LF', 'CF', 'RF', 'OF', 'Util', 'SP', 'SP', 'SP', 'RP', 'RP', 'P', 'P', 'P', 'BN', 'BN', 'BN', 'BN', 'BN', 'BN', 'IL', 'IL', 'IL', 'NA'],
             categoryWeights: {
                 'r': 1.0, 'hr': 1.0, 'rbi': 1.0, 'sb': 1.0, 'avg': 1.0,
                 'w': 1.0, 'sv': 1.0, 'k': 1.0, 'era': 1.0, 'whip': 1.0
-            }
-        },
-        h2h12: {
-            name: 'H2H 6x6',
-            teams: 16,
-            draftType: 'auction',
-            budget: 260,
-            hitterPitcherSplit: '60/40', // 60% hitters, 40% pitchers
-            rosterHitters: 9,   // Active hitters (C, 1B, 2B, 3B, SS, LF, CF, RF, Util)
-            rosterPitchers: 9,  // Active pitchers (3 SP, 3 RP, 3 P)
-            rosterComposition: ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'Util', 'SP', 'SP', 'SP', 'RP', 'RP', 'RP', 'P', 'P', 'P', 'BN', 'BN', 'BN', 'BN', 'BN', 'IL', 'IL', 'IL', 'NA'],
-            categoryWeights: {
-                'r': 1.0, 'hr': 1.0, 'rbi': 1.0, 'sb': 0.7, 'avg': 1.0, 'ops': 1.0,
-                'w': 0.7, 'sv': 1.0, 'k': 1.0, 'era': 1.0, 'whip': 1.0, 'qs': 1.0, 'nsvh': 1.0
             }
         }
     },
@@ -68,18 +53,12 @@ const App = {
         this.updateDataInfo();
         this.updateSetupStatus();
         this.applySettingsToUI();
-        this.updateDraftAssistantUI('roto5x5');
-        this.updateDraftAssistantUI('h2h12');
+        this.updateDraftAssistantUI();
 
-        // Restore tab state from saved league settings
+        // Enable tabs if we have league settings
         const savedLeague = localStorage.getItem('yahoo_league_settings');
         if (savedLeague) {
-            try {
-                const parsed = JSON.parse(savedLeague);
-                if (parsed.leagueKey) {
-                    this.updateTabsForLeague(parsed.leagueKey);
-                }
-            } catch (e) { /* ignore parse errors */ }
+            this.enableTabs();
         }
     },
 
@@ -98,61 +77,33 @@ const App = {
         document.getElementById('saveDataBtn')?.addEventListener('click', () => this.saveData());
         document.getElementById('exportCsvBtn')?.addEventListener('click', () => this.exportCSV());
 
-        // Roto 5x5 table events
-        document.getElementById('rotoPositionFilter').addEventListener('change', () => this.updateRotoTable());
-        document.getElementById('rotoSearchPlayer').addEventListener('input', (e) => this.searchPlayers('roto', e.target.value));
-        document.getElementById('rotoHideDrafted').addEventListener('change', () => this.updateRotoTable());
+        // Rankings table events
+        document.getElementById('positionFilter')?.addEventListener('change', () => this.updateRankingsTable());
+        document.getElementById('searchPlayer')?.addEventListener('input', (e) => this.searchPlayers(e.target.value));
+        document.getElementById('hideDrafted')?.addEventListener('change', () => this.updateRankingsTable());
 
-        // Draft Assistant events (ROTO)
-        document.getElementById('processDraftLogBtn')?.addEventListener('click', () => this.processDraftLog('roto5x5'));
-        document.getElementById('clearDraftLogBtn')?.addEventListener('click', () => this.clearDraftLog('roto5x5'));
-        document.getElementById('syncDraftFromApiBtn')?.addEventListener('click', () => this.syncDraftFromApi('roto5x5'));
+        // Draft Assistant events
+        document.getElementById('processDraftLogBtn')?.addEventListener('click', () => this.processDraftLog());
+        document.getElementById('clearDraftLogBtn')?.addEventListener('click', () => this.clearDraftLog());
+        document.getElementById('syncDraftFromApiBtn')?.addEventListener('click', () => this.syncDraftFromApi());
         document.getElementById('draftTeamName')?.addEventListener('change', (e) => {
             if (typeof DraftManager !== 'undefined') {
-                DraftManager.setTeamName(e.target.value, 'roto5x5');
-                this.updateDraftAssistantUI('roto5x5');
+                DraftManager.setTeamName(e.target.value);
+                this.updateDraftAssistantUI();
             }
         });
         document.getElementById('draftTeamCount')?.addEventListener('change', (e) => {
             const count = parseInt(e.target.value);
             if (count >= 4 && count <= 30) {
-                this.leagueSettings.roto5x5.teams = count;
+                this.leagueSettings.active.teams = count;
                 localStorage.setItem('fantasy_settings', JSON.stringify(this.leagueSettings));
                 this.calculateValues();
             }
         });
-        // Draft Assistant Checkbox (ROTO)
+        // Draft Assistant Checkbox
         document.getElementById('hideDraftedPlayers')?.addEventListener('change', (e) => {
-             this.updateDraftAssistantUI('roto5x5');
+             this.updateDraftAssistantUI();
         });
-
-        // Draft Assistant events (H2H)
-        document.getElementById('h2hProcessDraftLogBtn')?.addEventListener('click', () => this.processDraftLog('h2h12'));
-        document.getElementById('h2hClearDraftLogBtn')?.addEventListener('click', () => this.clearDraftLog('h2h12'));
-        document.getElementById('h2hSyncDraftFromApiBtn')?.addEventListener('click', () => this.syncDraftFromApi('h2h12'));
-        document.getElementById('h2hDraftTeamName')?.addEventListener('change', (e) => {
-            if (typeof DraftManager !== 'undefined') {
-                DraftManager.setTeamName(e.target.value, 'h2h12');
-                this.updateDraftAssistantUI('h2h12');
-            }
-        });
-        document.getElementById('h2hDraftTeamCount')?.addEventListener('change', (e) => {
-            const count = parseInt(e.target.value);
-            if (count >= 4 && count <= 30) {
-                this.leagueSettings.h2h12.teams = count;
-                localStorage.setItem('fantasy_settings', JSON.stringify(this.leagueSettings));
-                this.calculateValues();
-            }
-        });
-        // Draft Assistant Checkbox (H2H)
-        document.getElementById('h2hHideDraftedPlayers')?.addEventListener('change', (e) => {
-             this.updateDraftAssistantUI('h2h12');
-        });
-        
-        // H2H 12-Cat table events
-        document.getElementById('h2hPositionFilter').addEventListener('change', () => this.updateH2HTable());
-        document.getElementById('h2hSearchPlayer').addEventListener('input', (e) => this.searchPlayers('h2h', e.target.value));
-        document.getElementById('h2hHideDrafted').addEventListener('change', () => this.updateH2HTable());
 
         // Data Management events (moved from Settings to Setup)
         document.getElementById('clearStorageBtn').addEventListener('click', () => this.clearAllData());
@@ -178,14 +129,14 @@ const App = {
         });
 
         // Active Bidder Events (Module 3)
-        const bidInput = document.getElementById('h2hBidSearchInput');
+        const bidInput = document.getElementById('bidSearchInput');
         if (bidInput) {
             bidInput.addEventListener('input', (e) => this.searchBidPlayer(e.target.value));
-            
+
             // Hide results on outside click
             document.addEventListener('click', (e) => {
                 if (!e.target.closest('.bid-search-box')) {
-                    document.getElementById('h2hBidSearchResults')?.classList.add('hidden');
+                    document.getElementById('bidSearchResults')?.classList.add('hidden');
                 }
             });
         }
@@ -195,13 +146,13 @@ const App = {
      * Search for player in Active Bidder module
      */
     searchBidPlayer(query) {
-        const resultsDiv = document.getElementById('h2hBidSearchResults');
+        const resultsDiv = document.getElementById('bidSearchResults');
         if (!query || query.length < 2) {
             resultsDiv.classList.add('hidden');
             return;
         }
 
-        const players = this.currentData.combined.h2h12 || [];
+        const players = this.currentData.combined || [];
         const matches = players
             .filter(p => p.name.toLowerCase().includes(query.toLowerCase()))
             .slice(0, 8);
@@ -212,7 +163,7 @@ const App = {
         }
 
         resultsDiv.innerHTML = matches.map(p => {
-            const isTaken = DraftManager.isPlayerTaken(p, 'h2h12');
+            const isTaken = DraftManager.isPlayerTaken(p);
             const style = isTaken ? 'opacity: 0.6; background: #f3f4f6;' : '';
             const takenBadge = isTaken ? '<span style="color:#dc2626; font-size:0.75em; font-weight:bold; margin-left:6px;">(TAKEN)</span>' : '';
             const injBadge = p.injuryStatus ? `<span class="injury-badge injury-${p.injuryStatus.startsWith('IL') ? 'il' : 'dtd'}">${p.injuryStatus}</span>` : '';
@@ -240,17 +191,17 @@ const App = {
      */
     selectBidPlayer(player) {
         // UI Updates
-        const input = document.getElementById('h2hBidSearchInput');
-        const resultsDiv = document.getElementById('h2hBidSearchResults');
-        const contentDiv = document.getElementById('h2hBidAnalysisContent');
-        
+        const input = document.getElementById('bidSearchInput');
+        const resultsDiv = document.getElementById('bidSearchResults');
+        const contentDiv = document.getElementById('bidAnalysisContent');
+
         input.value = player.name;
         resultsDiv.classList.add('hidden');
         contentDiv.classList.remove('hidden');
 
         // Calculations
-        const stats = DraftManager.getMyTeamStats('h2h12');
-        const settings = this.leagueSettings.h2h12;
+        const stats = DraftManager.getMyTeamStats();
+        const settings = this.leagueSettings.active;
         const totalBudget = settings.budget || 260;
         const rosterSize = (settings.rosterHitters || 14) + (settings.rosterPitchers || 9); // Total slots
         const slotsFilled = stats.count;
@@ -262,7 +213,7 @@ const App = {
         const maxBid = Math.max(0, moneyLeft - (Math.max(0, slotsLeft - 1)));
 
         // Inflation
-        const inflationStats = DraftManager.calculateInflationStats(this.currentData.combined.h2h12, settings);
+        const inflationStats = DraftManager.calculateInflationStats(this.currentData.combined, settings);
         const inflationRate = inflationStats ? inflationStats.inflationRate : 1.0;
         const systemPrice = player.dollarValue;
         const inflatedPrice = Math.round(systemPrice * inflationRate);
@@ -290,52 +241,39 @@ const App = {
         const priceColor = isAffordable ? '#059669' : '#dc2626';
 
         // Check if Taken
-        const isTaken = DraftManager.isPlayerTaken(player, 'h2h12');
+        const isTaken = DraftManager.isPlayerTaken(player);
         const warningHtml = isTaken ? `
             <div style="background: #fee2e2; border: 1px solid #ef4444; color: #b91c1c; padding: 8px; border-radius: 4px; margin-bottom: 12px; text-align: center; font-weight: bold; font-size: 0.9em;">
                 ⚠️ PLAYER ALREADY DRAFTED
             </div>
         ` : '';
 
-        // Build Full Stats Grid (H2H 6x6)
-        let statsHtml = '';
-        if (player.type === 'hitter') {
-            const cats = [
-                { label: 'R', val: Math.round(player.r || 0), z: player.z_r },
-                { label: 'HR', val: Math.round(player.hr || 0), z: player.z_hr },
-                { label: 'RBI', val: Math.round(player.rbi || 0), z: player.z_rbi },
-                { label: 'SB', val: Math.round(player.sb || 0), z: player.z_sb },
-                { label: 'AVG', val: this.formatNumber(player.avg, 3, '.000'), z: player.z_avg },
-                { label: 'OPS', val: this.formatNumber(player.ops, 3, '.000'), z: player.z_ops }
-            ];
-            
-            statsHtml = cats.map(c => `
+        // Build Full Stats Grid (dynamic from active league categories)
+        const league = Calculator.LEAGUES.active;
+        const catDisplayNames = {
+            'r': 'R', 'hr': 'HR', 'rbi': 'RBI', 'sb': 'SB', 'avg': 'AVG', 'ops': 'OPS',
+            'obp': 'OBP', 'w': 'W', 'sv': 'SV', 'k': 'K', 'era': 'ERA', 'whip': 'WHIP',
+            'qs': 'QS', 'hld': 'HLD', 'nsvh': 'NSVH'
+        };
+        const rateStats = new Set(['avg', 'ops', 'obp', 'era', 'whip']);
+        const categories = player.type === 'hitter' ? league.hitting : league.pitching;
+
+        let statsHtml = categories.map(cat => {
+            const z = player['z_' + cat] || 0;
+            const raw = player[cat] ?? (cat === 'k' ? player.so : undefined) ?? 0;
+            const label = catDisplayNames[cat] || cat.toUpperCase();
+            const val = rateStats.has(cat)
+                ? this.formatNumber(raw, cat === 'avg' || cat === 'ops' || cat === 'obp' ? 3 : 2)
+                : Math.round(raw);
+            return `
                 <div style="text-align: center; padding: 6px; background: #f8fafc; border-radius: 4px; border: 1px solid #e2e8f0;">
-                    <div style="font-size: 0.7em; color: #64748b; margin-bottom:2px;">${c.label}</div>
-                    <div style="font-weight: bold; font-size: 1rem; color: ${c.z > 0.5 ? '#16a34a' : c.z < -0.5 ? '#dc2626' : '#334155'};">
-                        ${c.val}
+                    <div style="font-size: 0.7em; color: #64748b; margin-bottom:2px;">${label}</div>
+                    <div style="font-weight: bold; font-size: 1rem; color: ${z > 0.5 ? '#16a34a' : z < -0.5 ? '#dc2626' : '#334155'};">
+                        ${val}
                     </div>
                 </div>
-            `).join('');
-        } else {
-            const cats = [
-                { label: 'W', val: Math.round(player.w || 0), z: player.z_w },
-                { label: 'K', val: Math.round(player.k || 0), z: player.z_k },
-                { label: 'ERA', val: this.formatNumber(player.era, 2), z: player.z_era },
-                { label: 'WHIP', val: this.formatNumber(player.whip, 2), z: player.z_whip },
-                { label: 'QS', val: Math.round(player.qs || 0), z: player.z_qs },
-                { label: 'NSVH', val: Math.round(player.nsvh || 0), z: player.z_nsvh }
-            ];
-            
-            statsHtml = cats.map(c => `
-                <div style="text-align: center; padding: 6px; background: #f8fafc; border-radius: 4px; border: 1px solid #e2e8f0;">
-                    <div style="font-size: 0.7em; color: #64748b; margin-bottom:2px;">${c.label}</div>
-                    <div style="font-weight: bold; font-size: 1rem; color: ${c.z > 0.5 ? '#16a34a' : c.z < -0.5 ? '#dc2626' : '#334155'};">
-                        ${c.val}
-                    </div>
-                </div>
-            `).join('');
-        }
+            `;
+        }).join('');
 
         contentDiv.innerHTML = `
             ${warningHtml}
@@ -390,38 +328,27 @@ const App = {
         const stored = localStorage.getItem('fantasy_settings');
         if (stored) {
             const saved = JSON.parse(stored);
-            // Merge saved settings over defaults to preserve hardcoded properties
-            // (rosterHitters, rosterPitchers, rosterComposition, etc.)
-            const defaults = this.leagueSettings;
-            this.leagueSettings = {
-                ...defaults,
-                ...saved,
-                roto5x5: { ...defaults.roto5x5, ...saved.roto5x5 },
-                h2h12: { ...defaults.h2h12, ...saved.h2h12 }
-            };
+            // Migration: if old format with roto5x5/h2h12, ignore (use defaults)
+            if (saved.active) {
+                const defaults = this.leagueSettings;
+                this.leagueSettings = {
+                    ...defaults,
+                    active: { ...defaults.active, ...saved.active }
+                };
+            }
         }
-
-        // Always use hardcoded Scarcity Tiers (not user-configurable)
-        this.leagueSettings.scarcityTiers = {
-            h2h12: [30, 20, 15, 10, 5, 3],
-            roto5x5: [8, 6, 5, 3, 2, 1, 0]
-        };
     },
 
     /**
      * Save settings to localStorage
      */
     saveSettings() {
-        // Read split and weights from Step 4 UI
-        const leagueKey = this._step4LeagueKey;
-        if (!leagueKey) return;
-
-        const prev = this.leagueSettings[leagueKey];
+        const settings = this.leagueSettings.active;
 
         // Read hitter/pitcher split if auction
         const splitEl = document.getElementById('step4HitterPitcherSplit');
-        if (splitEl && prev.draftType === 'auction') {
-            prev.hitterPitcherSplit = splitEl.value;
+        if (splitEl && settings.draftType === 'auction') {
+            settings.hitterPitcherSplit = splitEl.value;
         }
 
         // Read category weights dynamically from container
@@ -433,7 +360,7 @@ const App = {
                 weights[input.dataset.cat] = isNaN(val) ? 1.0 : val;
             });
             if (Object.keys(weights).length > 0) {
-                prev.categoryWeights = weights;
+                settings.categoryWeights = weights;
             }
         }
 
@@ -462,26 +389,11 @@ const App = {
         const saveRow = document.getElementById('step4SaveRow');
         if (!container) return;
 
-        // Determine which league was synced by checking if Yahoo API has current settings
-        let leagueKey = null;
-        if (typeof YahooApi !== 'undefined' && YahooApi._currentSettings) {
-            leagueKey = YahooApi._currentSettings.scoring_type === 'head' ? 'h2h12' : 'roto5x5';
-        } else {
-            // Fallback: check if settings were previously saved to localStorage
-            const stored = localStorage.getItem('fantasy_settings');
-            if (stored) {
-                const saved = JSON.parse(stored);
-                for (const key of ['h2h12', 'roto5x5']) {
-                    if (saved[key]?.categoryWeights && Calculator.LEAGUES[key]) {
-                        leagueKey = key;
-                        break;
-                    }
-                }
-            }
-        }
+        const settings = this.leagueSettings.active;
+        const league = Calculator.LEAGUES.active;
 
-        if (!leagueKey) {
-            // No league synced yet
+        // Check if league has been configured (has scoringType set)
+        if (!settings.scoringType) {
             if (noSyncMsg) noSyncMsg.classList.remove('hidden');
             if (splitRow) splitRow.classList.add('hidden');
             if (saveRow) saveRow.classList.add('hidden');
@@ -489,12 +401,9 @@ const App = {
             return;
         }
 
-        this._step4LeagueKey = leagueKey;
         if (noSyncMsg) noSyncMsg.classList.add('hidden');
         if (saveRow) saveRow.classList.remove('hidden');
 
-        const settings = this.leagueSettings[leagueKey];
-        const league = Calculator.LEAGUES[leagueKey];
         if (!league) return;
 
         // Show split selector for auction leagues
@@ -572,37 +481,21 @@ const App = {
         // Refresh content when switching tabs
         if (tabId === 'setup') {
             this.updateSetupStatus();
-        } else if (tabId === 'roto') {
-            this.updateRotoTable();
-        } else if (tabId === 'h2h') {
-            this.updateH2HTable();
+        } else if (tabId === 'rankings') {
+            this.updateRankingsTable();
         } else if (tabId === 'draft') {
-            this.updateDraftAssistantUI('roto5x5');
-        } else if (tabId === 'h2h-draft') {
-            this.updateDraftAssistantUI('h2h12');
+            this.updateDraftAssistantUI();
         }
     },
 
     /**
-     * Update tab buttons based on loaded league type
-     * Maps Rankings/Draft tabs to the correct section for the league
+     * Enable Rankings and Draft tabs
      */
-    updateTabsForLeague(leagueKey) {
+    enableTabs() {
         const rankingsBtn = document.getElementById('tabRankings');
         const draftBtn = document.getElementById('tabDraft');
-        if (!rankingsBtn || !draftBtn) return;
-
-        if (leagueKey === 'h2h12') {
-            rankingsBtn.dataset.tab = 'h2h';
-            draftBtn.dataset.tab = 'h2h-draft';
-        } else {
-            rankingsBtn.dataset.tab = 'roto';
-            draftBtn.dataset.tab = 'draft';
-        }
-
-        // Enable the tabs
-        rankingsBtn.disabled = false;
-        draftBtn.disabled = false;
+        if (rankingsBtn) rankingsBtn.disabled = false;
+        if (draftBtn) draftBtn.disabled = false;
     },
 
     /**
@@ -859,16 +752,13 @@ const App = {
         // Update setup tab status
         this.updateSetupStatus();
 
-        // Update player tabs visibility (both Roto and H2H)
+        // Update Rankings tab visibility
         const hasData = hittersCount > 0 || pitchersCount > 0 || this.currentData.merged;
 
-        // Roto 5x5 tab
-        document.getElementById('rotoNoDataMsg').classList.toggle('hidden', hasData);
-        document.getElementById('rotoPlayerTableContainer').classList.toggle('hidden', !hasData);
-
-        // H2H 12-Cat tab
-        document.getElementById('h2hNoDataMsg').classList.toggle('hidden', hasData);
-        document.getElementById('h2hPlayerTableContainer').classList.toggle('hidden', !hasData);
+        const noDataMsg = document.getElementById('noDataMsg');
+        const tableContainer = document.getElementById('playerTableContainer');
+        if (noDataMsg) noDataMsg.classList.toggle('hidden', hasData);
+        if (tableContainer) tableContainer.classList.toggle('hidden', !hasData);
     },
 
     /**
@@ -900,111 +790,86 @@ const App = {
         console.log('Hitters:', hittersToUse?.length || 0);
         console.log('Pitchers:', pitchersToUse?.length || 0);
 
-        // Calculate for both leagues
-        ['roto5x5', 'h2h12'].forEach(leagueType => {
-            let allPlayers = [];
-            const leagueSetting = this.leagueSettings[leagueType];
+        // Calculate for single active league
+        let allPlayers = [];
+        const leagueSetting = this.leagueSettings.active;
 
-            // Determine Z-score baseline pool size
-            // Use 2× drafted count (active + bench) so Z=0 ≈ draftable boundary
-            const teams = leagueSetting.teams || 12;
-            const activeH = leagueSetting.rosterHitters || 14;
-            const activeP = leagueSetting.rosterPitchers || 9;
-            const comp = leagueSetting.rosterComposition || [];
-            const benchSlots = comp.filter(s => s === 'BN').length;
-            const activeTotal = activeH + activeP;
-            const benchH = activeTotal > 0 ? Math.round(benchSlots * activeH / activeTotal) : 0;
-            const benchP = benchSlots - benchH;
-            const baselineHitters = Math.min(hittersToUse ? hittersToUse.length : 0, teams * (activeH + benchH) * 2);
-            const baselinePitchers = Math.min(pitchersToUse ? pitchersToUse.length : 0, teams * (activeP + benchP) * 2);
+        // Determine Z-score baseline pool size
+        const teams = leagueSetting.teams || 12;
+        const activeH = leagueSetting.rosterHitters || 14;
+        const activeP = leagueSetting.rosterPitchers || 9;
+        const comp = leagueSetting.rosterComposition || [];
+        const benchSlots = comp.filter(s => s === 'BN').length;
+        const activeTotal = activeH + activeP;
+        const benchH = activeTotal > 0 ? Math.round(benchSlots * activeH / activeTotal) : 0;
+        const benchP = benchSlots - benchH;
+        const baselineHitters = Math.min(hittersToUse ? hittersToUse.length : 0, teams * (activeH + benchH) * 2);
+        const baselinePitchers = Math.min(pitchersToUse ? pitchersToUse.length : 0, teams * (activeP + benchP) * 2);
 
-            if (hittersToUse) {
-                // Deep copy to avoid mutation
-                const hittersCopy = hittersToUse.map(p => ({...p}));
-                const hittersWithZ = Calculator.calculateZScores(
-                    hittersCopy,
-                    leagueType,
-                    'hitter',
-                    leagueSetting.categoryWeights,
-                    baselineHitters // 2× drafted count for intuitive Z values
-                );
-                allPlayers = allPlayers.concat(hittersWithZ);
-            }
+        if (hittersToUse) {
+            const hittersCopy = hittersToUse.map(p => ({...p}));
+            const hittersWithZ = Calculator.calculateZScores(
+                hittersCopy,
+                'active',
+                'hitter',
+                leagueSetting.categoryWeights,
+                baselineHitters
+            );
+            allPlayers = allPlayers.concat(hittersWithZ);
+        }
 
-            if (pitchersToUse) {
-                const pitchersCopy = pitchersToUse.map(p => ({...p}));
-                const pitchersWithZ = Calculator.calculateZScores(
-                    pitchersCopy,
-                    leagueType,
-                    'pitcher',
-                    leagueSetting.categoryWeights,
-                    baselinePitchers // 2× drafted count for intuitive Z values
-                );
-                allPlayers = allPlayers.concat(pitchersWithZ);
-            }
+        if (pitchersToUse) {
+            const pitchersCopy = pitchersToUse.map(p => ({...p}));
+            const pitchersWithZ = Calculator.calculateZScores(
+                pitchersCopy,
+                'active',
+                'pitcher',
+                leagueSetting.categoryWeights,
+                baselinePitchers
+            );
+            allPlayers = allPlayers.concat(pitchersWithZ);
+        }
 
-            // Calculate dollar values if it's an auction draft
-            if (leagueSetting.draftType === 'auction') {
-                const teamCount = leagueSetting.teams || 12;
-                const budgetPerTeam = leagueSetting.budget || 260;
-                const totalLeagueBudget = teamCount * budgetPerTeam;
-                
-                // Parse split
-                const split = leagueSetting.hitterPitcherSplit || '60/40';
-                const [hitterPctStr, pitcherPctStr] = split.split('/');
-                const hitterPct = parseInt(hitterPctStr) / 100;
-                const pitcherPct = parseInt(pitcherPctStr) / 100;
+        // Calculate dollar values if it's an auction draft
+        if (leagueSetting.draftType === 'auction') {
+            const teamCount = leagueSetting.teams || 12;
+            const budgetPerTeam = leagueSetting.budget || 260;
+            const totalLeagueBudget = teamCount * budgetPerTeam;
 
-                const hitterBudgetPool = totalLeagueBudget * hitterPct;
-                const pitcherBudgetPool = totalLeagueBudget * pitcherPct;
+            const split = leagueSetting.hitterPitcherSplit || '60/40';
+            const [hitterPctStr, pitcherPctStr] = split.split('/');
+            const hitterPct = parseInt(hitterPctStr) / 100;
+            const pitcherPct = parseInt(pitcherPctStr) / 100;
 
-                // Separate players by type
-                const hitters = allPlayers.filter(p => p.type === 'hitter');
-                const pitchers = allPlayers.filter(p => p.type === 'pitcher');
+            const hitterBudgetPool = totalLeagueBudget * hitterPct;
+            const pitcherBudgetPool = totalLeagueBudget * pitcherPct;
 
-                // For dollar values, use total draftable slots (active + bench).
-                // Bench is split by active roster ratio (not budget ratio),
-                // because budget split determines spending, not draft composition.
-                const activeH = leagueSetting.rosterHitters || 14;
-                const activeP = leagueSetting.rosterPitchers || 9;
-                const comp = leagueSetting.rosterComposition || [];
-                const benchSlots = comp.filter(s => s === 'BN').length;
-                const activeRatioH = activeH / (activeH + activeP);
-                const benchH = Math.round(benchSlots * activeRatioH);
-                const benchP = benchSlots - benchH;
-                const draftedHitters = activeH + benchH;
-                const draftedPitchers = activeP + benchP;
+            const hitters = allPlayers.filter(p => p.type === 'hitter');
+            const pitchers = allPlayers.filter(p => p.type === 'pitcher');
 
-                // Calculate values separately
-                const valuedHitters = Calculator.calculateDollarValues(
-                    hitters,
-                    hitterBudgetPool,
-                    teamCount,
-                    draftedHitters
-                );
+            const activeRatioH = activeH / (activeH + activeP);
+            const benchHAuction = Math.round(benchSlots * activeRatioH);
+            const benchPAuction = benchSlots - benchHAuction;
+            const draftedHitters = activeH + benchHAuction;
+            const draftedPitchers = activeP + benchPAuction;
 
-                const valuedPitchers = Calculator.calculateDollarValues(
-                    pitchers,
-                    pitcherBudgetPool,
-                    teamCount,
-                    draftedPitchers
-                );
+            const valuedHitters = Calculator.calculateDollarValues(
+                hitters, hitterBudgetPool, teamCount, draftedHitters
+            );
+            const valuedPitchers = Calculator.calculateDollarValues(
+                pitchers, pitcherBudgetPool, teamCount, draftedPitchers
+            );
 
-                // Merge back
-                allPlayers = [...valuedHitters, ...valuedPitchers];
-            } else {
-                // Snake draft logic (simple ranking by Z-total) - dollar value 0
-                allPlayers = allPlayers.map(p => ({...p, dollarValue: 0}));
-            }
+            allPlayers = [...valuedHitters, ...valuedPitchers];
+        } else {
+            allPlayers = allPlayers.map(p => ({...p, dollarValue: 0}));
+        }
 
-            allPlayers = Calculator.rankPlayers(allPlayers);
-            this.currentData.combined[leagueType] = allPlayers;
-        });
+        allPlayers = Calculator.rankPlayers(allPlayers);
+        this.currentData.combined = allPlayers;
 
         console.log('Calculation complete. Updating tables...');
-        // Update both Roto and H2H tables
-        this.updateRotoTable();
-        this.updateH2HTable();
+        this.updateRankingsTable();
     },
 
     /**
@@ -1026,57 +891,35 @@ const App = {
     },
 
     /**
-     * Update Roto 5x5 player table
+     * Update Rankings table
      */
-    updateRotoTable() {
-        this.updatePlayerTable('roto5x5', 'roto');
-    },
+    updateRankingsTable() {
+        const leagueData = this.currentData.combined;
 
-    /**
-     * Update H2H 12-Cat player table
-     */
-    updateH2HTable() {
-        this.updatePlayerTable('h2h12', 'h2h');
-    },
-
-    /**
-     * Update player table display (unified method for both leagues)
-     * @param {string} leagueType - 'roto5x5' or 'h2h12'
-     * @param {string} prefix - 'roto' or 'h2h' (for element IDs)
-     */
-    updatePlayerTable(leagueType, prefix) {
-        const leagueData = this.currentData.combined[leagueType];
-
-        console.log('Updating player table for:', leagueType);
-        console.log('League data:', leagueData?.length || 0, 'players');
-
-        const noDataMsg = document.getElementById(`${prefix}NoDataMsg`);
-        const tableContainer = document.getElementById(`${prefix}PlayerTableContainer`);
-        const tbody = document.querySelector(`#${prefix}PlayerTable tbody`);
-        const headerRow = document.querySelector(`#${prefix}PlayerTable thead tr`);
+        const noDataMsg = document.getElementById('noDataMsg');
+        const tableContainer = document.getElementById('playerTableContainer');
+        const tbody = document.querySelector('#playerTable tbody');
+        const headerRow = document.querySelector('#playerTable thead tr');
 
         if (!leagueData || leagueData.length === 0) {
-            console.log('No league data found. Showing no data message.');
-            noDataMsg.classList.remove('hidden');
-            tableContainer.classList.add('hidden');
+            if (noDataMsg) noDataMsg.classList.remove('hidden');
+            if (tableContainer) tableContainer.classList.add('hidden');
             return;
         }
 
-        const leagueSetting = this.leagueSettings[leagueType];
+        const leagueSetting = this.leagueSettings.active;
         const isAuction = leagueSetting.draftType === 'auction';
-        const isH2H = leagueType === 'h2h12';
-        const positionFilter = document.getElementById(`${prefix}PositionFilter`).value;
+        const positionFilter = document.getElementById('positionFilter')?.value || 'all';
 
         // Filter players based on position
         let players = this.filterPlayersByPosition(leagueData, positionFilter);
 
         // Filter Drafted Players
-        // Use the specific checkbox for this tab
-        const hideDraftedCheckbox = document.getElementById(`${prefix}HideDrafted`);
+        const hideDraftedCheckbox = document.getElementById('hideDrafted');
         const hideDrafted = hideDraftedCheckbox ? hideDraftedCheckbox.checked : true;
-        
+
         if (hideDrafted) {
-            players = players.filter(p => !DraftManager.isPlayerTaken(p, leagueType));
+            players = players.filter(p => !DraftManager.isPlayerTaken(p));
         }
 
         // Determine display mode based on filtered players
@@ -1084,12 +927,18 @@ const App = {
         const showHitters = positionFilter === 'DH' || ['C', '1B', '2B', '3B', 'SS', 'CI', 'MI', 'LF', 'CF', 'RF', 'OF'].includes(positionFilter);
         const showAll = positionFilter === 'all';
 
-        console.log('Position filter:', positionFilter, '| Displaying', players.length, 'players');
-
         // Sort players using current sort state
         players = this.sortPlayers(players);
 
-        // Helper to generate sort indicator
+        // Dynamic category columns from Calculator.LEAGUES.active
+        const league = Calculator.LEAGUES.active;
+        const catDisplayNames = {
+            'r': 'R', 'hr': 'HR', 'rbi': 'RBI', 'sb': 'SB', 'avg': 'AVG', 'ops': 'OPS',
+            'obp': 'OBP', 'w': 'W', 'sv': 'SV', 'k': 'K', 'era': 'ERA', 'whip': 'WHIP',
+            'qs': 'QS', 'hld': 'HLD', 'nsvh': 'NSVH'
+        };
+        const rateStatSet = new Set(['avg', 'ops', 'obp', 'era', 'whip']);
+
         const sortIndicator = (col) => {
             if (this.sortState.column === col) {
                 return this.sortState.direction === 'asc' ? ' ▲' : ' ▼';
@@ -1097,85 +946,41 @@ const App = {
             return '';
         };
 
-        // Helper to get CSS class based on Z-score
         const getZClass = (z) => {
             if (z === undefined || z === null) return '';
-            if (z >= 1.5) return 'stat-elite';  // Deep Green (Elite)
-            if (z >= 0.5) return 'stat-good';   // Light Green (Helpful)
-            if (z <= -1.5) return 'stat-poor';  // Deep Red (Poison) - reusing 'stat-poor' class which is dark red
-            if (z <= -0.5) return 'stat-bad';   // Light Red (Harmful) - reusing 'stat-bad' class which is light red
-            return '';                          // Neutral (No Color)
+            if (z >= 1.5) return 'stat-elite';
+            if (z >= 0.5) return 'stat-good';
+            if (z <= -1.5) return 'stat-poor';
+            if (z <= -0.5) return 'stat-bad';
+            return '';
         };
 
-        // Update table header based on player type and league
         const valHeader = isAuction ? `<th data-sort="value">$${sortIndicator('value')}</th>` : '';
 
-        if (showPitchers) {
-            // Pitcher columns
-            if (isH2H) {
-                headerRow.innerHTML = `
-                    <th data-sort="rank">#</th>
-                    <th data-sort="name">Name${sortIndicator('name')}</th>
-                    <th data-sort="team">Team${sortIndicator('team')}</th>
-                    <th data-sort="positionString">Pos${sortIndicator('positionString')}</th>
-                    ${valHeader}
-                    <th data-sort="w">W${sortIndicator('w')}</th>
-                    <th data-sort="k">K${sortIndicator('k')}</th>
-                    <th data-sort="era">ERA${sortIndicator('era')}</th>
-                    <th data-sort="whip">WHIP${sortIndicator('whip')}</th>
-                    <th data-sort="qs">QS${sortIndicator('qs')}</th>
-                    <th data-sort="nsvh">NSVH${sortIndicator('nsvh')}</th>
-                    <th data-sort="zTotal">Z-Total${sortIndicator('zTotal')}</th>
-                `;
-            } else {
-                headerRow.innerHTML = `
-                    <th data-sort="rank">#</th>
-                    <th data-sort="name">Name${sortIndicator('name')}</th>
-                    <th data-sort="team">Team${sortIndicator('team')}</th>
-                    <th data-sort="positionString">Pos${sortIndicator('positionString')}</th>
-                    ${valHeader}
-                    <th data-sort="w">W${sortIndicator('w')}</th>
-                    <th data-sort="sv">SV${sortIndicator('sv')}</th>
-                    <th data-sort="k">K${sortIndicator('k')}</th>
-                    <th data-sort="era">ERA${sortIndicator('era')}</th>
-                    <th data-sort="whip">WHIP${sortIndicator('whip')}</th>
-                    <th data-sort="zTotal">Z-Total${sortIndicator('zTotal')}</th>
-                `;
-            }
-        } else if (showHitters) {
-            // Hitter columns
-            if (isH2H) {
-                headerRow.innerHTML = `
-                    <th data-sort="rank">#</th>
-                    <th data-sort="name">Name${sortIndicator('name')}</th>
-                    <th data-sort="team">Team${sortIndicator('team')}</th>
-                    <th data-sort="positionString">Pos${sortIndicator('positionString')}</th>
-                    ${valHeader}
-                    <th data-sort="r">R${sortIndicator('r')}</th>
-                    <th data-sort="hr">HR${sortIndicator('hr')}</th>
-                    <th data-sort="rbi">RBI${sortIndicator('rbi')}</th>
-                    <th data-sort="sb">SB${sortIndicator('sb')}</th>
-                    <th data-sort="avg">AVG${sortIndicator('avg')}</th>
-                    <th data-sort="ops">OPS${sortIndicator('ops')}</th>
-                    <th data-sort="zTotal">Z-Total${sortIndicator('zTotal')}</th>
-                `;
-            } else {
-                headerRow.innerHTML = `
-                    <th data-sort="rank">#</th>
-                    <th data-sort="name">Name${sortIndicator('name')}</th>
-                    <th data-sort="team">Team${sortIndicator('team')}</th>
-                    <th data-sort="positionString">Pos${sortIndicator('positionString')}</th>
-                    ${valHeader}
-                    <th data-sort="r">R${sortIndicator('r')}</th>
-                    <th data-sort="hr">HR${sortIndicator('hr')}</th>
-                    <th data-sort="rbi">RBI${sortIndicator('rbi')}</th>
-                    <th data-sort="sb">SB${sortIndicator('sb')}</th>
-                    <th data-sort="avg">AVG${sortIndicator('avg')}</th>
-                    <th data-sort="zTotal">Z-Total${sortIndicator('zTotal')}</th>
-                `;
-            }
+        // Determine which categories to show
+        let activeCats = [];
+        if (showPitchers && league) {
+            activeCats = league.pitching;
+        } else if (showHitters && league) {
+            activeCats = league.hitting;
+        }
+
+        if (showPitchers || showHitters) {
+            const catHeaders = activeCats.map(cat => {
+                const display = catDisplayNames[cat] || cat.toUpperCase();
+                return `<th data-sort="${cat}">${display}${sortIndicator(cat)}</th>`;
+            }).join('');
+
+            headerRow.innerHTML = `
+                <th data-sort="rank">#</th>
+                <th data-sort="name">Name${sortIndicator('name')}</th>
+                <th data-sort="team">Team${sortIndicator('team')}</th>
+                <th data-sort="positionString">Pos${sortIndicator('positionString')}</th>
+                ${valHeader}
+                ${catHeaders}
+                <th data-sort="zTotal">Z-Total${sortIndicator('zTotal')}</th>
+            `;
         } else {
-            // All players view
             headerRow.innerHTML = `
                 <th data-sort="rank">#</th>
                 <th data-sort="name">Name${sortIndicator('name')}</th>
@@ -1187,7 +992,17 @@ const App = {
             `;
         }
 
-        // Generate table rows (display all players)
+        // Helper to format a stat cell value
+        const formatStatVal = (player, cat) => {
+            const raw = player[cat] ?? (cat === 'k' ? player.so : undefined) ?? 0;
+            if (rateStatSet.has(cat)) {
+                return this.formatNumber(raw, cat === 'avg' || cat === 'ops' || cat === 'obp' ? 3 : 2,
+                    cat === 'avg' || cat === 'ops' || cat === 'obp' ? '.000' : '0.00');
+            }
+            return Math.round(raw);
+        };
+
+        // Generate table rows
         tbody.innerHTML = players.map((player, index) => {
             const valueDisplay = isAuction ? `<td class="${player.dollarValue >= 20 ? 'value-high' : player.dollarValue <= 5 ? 'value-low' : ''}">$${player.dollarValue || 0}</td>` : '';
             const posDisplay = player.positionString || player.positions?.join(',') || '-';
@@ -1195,72 +1010,22 @@ const App = {
             const zClass = zTotal > 0 ? 'z-positive' : 'z-negative';
             const injuryBadge = player.injuryStatus ? ` <span class="injury-badge injury-${player.injuryStatus.startsWith('IL') ? 'il' : 'dtd'}">${player.injuryStatus}</span>` : '';
 
-            if (showPitchers) {
-                // Pitcher row
-                if (isH2H) {
-                    return `<tr>
-                        <td>${index + 1}</td>
-                        <td><strong>${player.name}</strong>${injuryBadge}</td>
-                        <td>${player.team}</td>
-                        <td>${posDisplay}</td>
-                        ${valueDisplay}
-                        <td class="${getZClass(player.z_w)}">${player.w || 0}</td>
-                        <td class="${getZClass(player.z_k)}">${player.k || player.so || 0}</td>
-                        <td class="${getZClass(player.z_era)}">${this.formatNumber(player.era, 2, '0.00')}</td>
-                        <td class="${getZClass(player.z_whip)}">${this.formatNumber(player.whip, 2, '0.00')}</td>
-                        <td class="${getZClass(player.z_qs)}">${player.qs || 0}</td>
-                        <td class="${getZClass(player.z_nsvh)}">${player.nsvh || 0}</td>
-                        <td class="${zClass}">${this.formatNumber(player.zTotal, 1, '0.0')}</td>
-                    </tr>`;
-                } else {
-                    return `<tr>
-                        <td>${index + 1}</td>
-                        <td><strong>${player.name}</strong>${injuryBadge}</td>
-                        <td>${player.team}</td>
-                        <td>${posDisplay}</td>
-                        ${valueDisplay}
-                        <td class="${getZClass(player.z_w)}">${player.w || 0}</td>
-                        <td class="${getZClass(player.z_sv)}">${player.sv || 0}</td>
-                        <td class="${getZClass(player.z_k)}">${player.k || player.so || 0}</td>
-                        <td class="${getZClass(player.z_era)}">${this.formatNumber(player.era, 2, '0.00')}</td>
-                        <td class="${getZClass(player.z_whip)}">${this.formatNumber(player.whip, 2, '0.00')}</td>
-                        <td class="${zClass}">${this.formatNumber(player.zTotal, 1, '0.0')}</td>
-                    </tr>`;
-                }
-            } else if (showHitters) {
-                // Hitter row
-                if (isH2H) {
-                    return `<tr>
-                        <td>${index + 1}</td>
-                        <td><strong>${player.name}</strong>${injuryBadge}</td>
-                        <td>${player.team}</td>
-                        <td>${posDisplay}</td>
-                        ${valueDisplay}
-                        <td class="${getZClass(player.z_r)}">${player.r || 0}</td>
-                        <td class="${getZClass(player.z_hr)}">${player.hr || 0}</td>
-                        <td class="${getZClass(player.z_rbi)}">${player.rbi || 0}</td>
-                        <td class="${getZClass(player.z_sb)}">${player.sb || 0}</td>
-                        <td class="${getZClass(player.z_avg)}">${this.formatNumber(player.avg, 3, '.000')}</td>
-                        <td class="${getZClass(player.z_ops)}">${this.formatNumber(player.ops, 3, '.000')}</td>
-                        <td class="${zClass}">${this.formatNumber(player.zTotal, 1, '0.0')}</td>
-                    </tr>`;
-                } else {
-                    return `<tr>
-                        <td>${index + 1}</td>
-                        <td><strong>${player.name}</strong>${injuryBadge}</td>
-                        <td>${player.team}</td>
-                        <td>${posDisplay}</td>
-                        ${valueDisplay}
-                        <td class="${getZClass(player.z_r)}">${player.r || 0}</td>
-                        <td class="${getZClass(player.z_hr)}">${player.hr || 0}</td>
-                        <td class="${getZClass(player.z_rbi)}">${player.rbi || 0}</td>
-                        <td class="${getZClass(player.z_sb)}">${player.sb || 0}</td>
-                        <td class="${getZClass(player.z_avg)}">${this.formatNumber(player.avg, 3, '.000')}</td>
-                        <td class="${zClass}">${this.formatNumber(player.zTotal, 1, '0.0')}</td>
-                    </tr>`;
-                }
+            if (showPitchers || showHitters) {
+                const catCells = activeCats.map(cat => {
+                    const z = player['z_' + cat] || 0;
+                    return `<td class="${getZClass(z)}">${formatStatVal(player, cat)}</td>`;
+                }).join('');
+
+                return `<tr>
+                    <td>${index + 1}</td>
+                    <td><strong>${player.name}</strong>${injuryBadge}</td>
+                    <td>${player.team}</td>
+                    <td>${posDisplay}</td>
+                    ${valueDisplay}
+                    ${catCells}
+                    <td class="${zClass}">${this.formatNumber(player.zTotal, 1, '0.0')}</td>
+                </tr>`;
             } else {
-                // All players view
                 const typeLabel = player.type === 'pitcher' ? 'P' : 'H';
                 return `<tr>
                     <td>${index + 1}</td>
@@ -1274,12 +1039,12 @@ const App = {
             }
         }).join('');
 
-        // Rebind sort event listeners to new header cells
+        // Rebind sort event listeners
         headerRow.querySelectorAll('th[data-sort]').forEach(th => {
             th.style.cursor = 'pointer';
             th.addEventListener('click', (e) => {
                 const col = e.target.dataset.sort || e.target.closest('th').dataset.sort;
-                if (col) this.sortTable(col, prefix);
+                if (col) this.sortTable(col);
             });
         });
 
@@ -1336,22 +1101,17 @@ const App = {
 
     /**
      * Search players by name
-     * @param {string} prefix - 'roto' or 'h2h'
      * @param {string} query - Search query
      */
-    searchPlayers(prefix, query) {
+    searchPlayers(query) {
         if (!query) {
-            // Refresh table to show all players
-            if (prefix === 'roto') {
-                this.updateRotoTable();
-            } else {
-                this.updateH2HTable();
-            }
+            this.updateRankingsTable();
             return;
         }
 
         query = query.toLowerCase();
-        const tbody = document.querySelector(`#${prefix}PlayerTable tbody`);
+        const tbody = document.querySelector('#playerTable tbody');
+        if (!tbody) return;
         const rows = tbody.querySelectorAll('tr');
 
         rows.forEach(row => {
@@ -1363,33 +1123,22 @@ const App = {
     /**
      * Sort table by column
      * @param {string} column - Column to sort by
-     * @param {string} prefix - 'roto' or 'h2h'
      */
-    sortTable(column, prefix) {
-        // Toggle direction if same column, otherwise default to desc (or asc for name/team)
+    sortTable(column) {
         if (this.sortState.column === column) {
             this.sortState.direction = this.sortState.direction === 'asc' ? 'desc' : 'asc';
         } else {
             this.sortState.column = column;
-            // Default direction based on column type
             if (column === 'name' || column === 'team' || column === 'positionString') {
                 this.sortState.direction = 'asc';
             } else if (column === 'era' || column === 'whip') {
-                // Lower is better for ERA/WHIP
                 this.sortState.direction = 'asc';
             } else {
                 this.sortState.direction = 'desc';
             }
         }
 
-        console.log('Sorting by:', column, this.sortState.direction);
-
-        // Refresh the appropriate table
-        if (prefix === 'roto') {
-            this.updateRotoTable();
-        } else {
-            this.updateH2HTable();
-        }
+        this.updateRankingsTable();
     },
 
     /**
@@ -1445,11 +1194,10 @@ const App = {
         if (confirm('Clear all data from memory?\n\nNote: CSV files will remain on disk.\nTo fully reset, delete the CSV files in the data/ folder.')) {
             // Clear memory only (files remain)
             YahooParser.clear();
-            this.currentData = { hitters: null, pitchers: null, merged: null, combined: { roto5x5: [], h2h12: [] } };
+            this.currentData = { hitters: null, pitchers: null, merged: null, combined: [] };
             this.updateDataInfo();
             this.updateYahooStats();
-            this.updateRotoTable();
-            this.updateH2HTable();
+            this.updateRankingsTable();
             // Hide unmatched players section
             document.getElementById('unmatchedPlayersSection')?.classList.add('hidden');
             alert('Memory cleared. Refresh page to reload data from CSV files.');
@@ -1810,14 +1558,12 @@ const App = {
 
             // Clear merged + combined (depends on Yahoo data)
             this.currentData.merged = null;
-            this.currentData.combined = { roto5x5: [], h2h12: [] };
+            this.currentData.combined = [];
 
             // Update all UI
             this.updateDataInfo();
-            this.updateRotoTable();
-            this.updateH2HTable();
-            this.updateDraftAssistantUI('roto5x5');
-            this.updateDraftAssistantUI('h2h12');
+            this.updateRankingsTable();
+            this.updateDraftAssistantUI();
             document.getElementById('unmatchedPlayersSection')?.classList.add('hidden');
 
             alert('Position data and merged rankings cleared from memory.');
@@ -2397,33 +2143,25 @@ const App = {
 
     /**
      * Process draft log text
-     * @param {string} leagueType - 'roto5x5' or 'h2h12'
      */
-    processDraftLog(leagueType = 'roto5x5') {
-        const inputId = leagueType === 'h2h12' ? 'h2hDraftLogInput' : 'draftLogInput';
-        const inputEl = document.getElementById(inputId);
+    processDraftLog() {
+        const inputEl = document.getElementById('draftLogInput');
         if (!inputEl) return;
 
         const text = inputEl.value;
-        // Use the correct player pool for matching
-        const playerPool = this.currentData.combined[leagueType] || this.currentData.combined.roto5x5;
+        const playerPool = this.currentData.combined || [];
 
         // Sync team name from input field before processing
-        const nameInputId = leagueType === 'h2h12' ? 'h2hDraftTeamName' : 'draftTeamName';
-        const nameInput = document.getElementById(nameInputId);
+        const nameInput = document.getElementById('draftTeamName');
         if (nameInput && nameInput.value.trim()) {
-            DraftManager.setTeamName(nameInput.value.trim(), leagueType);
+            DraftManager.setTeamName(nameInput.value.trim());
         }
 
-        const result = DraftManager.processDraftLog(text, playerPool, leagueType);
-        
+        const result = DraftManager.processDraftLog(text, playerPool);
+
         if (result.success) {
-            this.updateDraftAssistantUI(leagueType);
-            // Refresh tables to hide drafted players
-            if (leagueType === 'roto5x5') this.updateRotoTable();
-            else this.updateH2HTable();
-            
-            // Clear input
+            this.updateDraftAssistantUI();
+            this.updateRankingsTable();
             inputEl.value = '';
             alert(`Draft log processed! ${result.count} players marked as taken.`);
         } else {
@@ -2433,29 +2171,25 @@ const App = {
 
     /**
      * Clear draft log
-     * @param {string} leagueType - 'roto5x5' or 'h2h12'
      */
-    clearDraftLog(leagueType = 'roto5x5') {
-        if (confirm('Clear all draft history for ' + (leagueType === 'h2h12' ? 'H2H' : 'Roto') + '?')) {
-            DraftManager.clearDraft(leagueType);
-            this.updateDraftAssistantUI(leagueType);
-            if (leagueType === 'roto5x5') this.updateRotoTable();
-            else this.updateH2HTable();
+    clearDraftLog() {
+        if (confirm('Clear all draft history?')) {
+            DraftManager.clearDraft();
+            this.updateDraftAssistantUI();
+            this.updateRankingsTable();
         }
     },
 
     /**
      * Sync draft results from Yahoo API
-     * @param {string} leagueType - 'roto5x5' or 'h2h12'
      */
-    async syncDraftFromApi(leagueType = 'roto5x5') {
+    async syncDraftFromApi() {
         if (typeof YahooApi === 'undefined' || !YahooApi.authenticated || !YahooApi.selectedLeague) {
             alert('Please connect to Yahoo and select a league in the Setup tab first.');
             return;
         }
 
-        const btnId = leagueType === 'h2h12' ? 'h2hSyncDraftFromApiBtn' : 'syncDraftFromApiBtn';
-        const btn = document.getElementById(btnId);
+        const btn = document.getElementById('syncDraftFromApiBtn');
         if (btn) {
             btn.disabled = true;
             btn.textContent = 'Syncing...';
@@ -2474,14 +2208,14 @@ const App = {
             const myTeam = teams?.find(t => t.is_owned_by_current_login);
             const myTeamKey = myTeam?.team_key || '';
 
-            // Clear existing draft data for this league
-            DraftManager.clearDraft(leagueType);
+            // Clear existing draft data
+            DraftManager.clearDraft();
             if (myTeam) {
-                DraftManager.setTeamName(myTeam.name, leagueType);
+                DraftManager.setTeamName(myTeam.name);
             }
 
             // Process each pick
-            const playerPool = this.currentData.combined[leagueType] || [];
+            const playerPool = this.currentData.combined || [];
             let processedCount = 0;
 
             for (const pick of picks) {
@@ -2506,11 +2240,10 @@ const App = {
 
                 if (matchedPlayer) {
                     const uniqueKey = `${matchedPlayer.name}|${matchedPlayer.team}|${matchedPlayer.type}`;
-                    const state = DraftManager._getState(leagueType);
 
-                    if (!state.takenPlayers.has(uniqueKey)) {
-                        state.takenPlayers.add(uniqueKey);
-                        state.draftLog.push({
+                    if (!DraftManager.state.takenPlayers.has(uniqueKey)) {
+                        DraftManager.state.takenPlayers.add(uniqueKey);
+                        DraftManager.state.draftLog.push({
                             pick: pick.pick,
                             player: matchedPlayer,
                             isMyTeam: isMyPick,
@@ -2519,11 +2252,11 @@ const App = {
                     }
 
                     if (isMyPick) {
-                        const alreadyInTeam = state.myTeam.some(p =>
+                        const alreadyInTeam = DraftManager.state.myTeam.some(p =>
                             p.name === matchedPlayer.name && p.team === matchedPlayer.team
                         );
                         if (!alreadyInTeam) {
-                            state.myTeam.push({ ...matchedPlayer, cost: pick.cost || 0 });
+                            DraftManager.state.myTeam.push({ ...matchedPlayer, cost: pick.cost || 0 });
                         }
                     }
                     processedCount++;
@@ -2533,9 +2266,8 @@ const App = {
             DraftManager.saveState();
 
             // Update UI
-            this.updateDraftAssistantUI(leagueType);
-            if (leagueType === 'roto5x5') this.updateRotoTable();
-            else this.updateH2HTable();
+            this.updateDraftAssistantUI();
+            this.updateRankingsTable();
 
             alert(`Draft synced! ${processedCount} of ${picks.length} picks matched.${processedCount < picks.length ? '\n\nSome picks could not be matched. This may happen if player data was not loaded from Yahoo API.' : ''}`);
         } catch (e) {
@@ -2552,21 +2284,15 @@ const App = {
     /**
      * Render Category Balance Dashboard (Z-Score Bars)
      */
-    renderBalanceDashboard(leagueType) {
-        const state = DraftManager._getState(leagueType);
-        const myTeam = state.myTeam;
-        
+    renderBalanceDashboard() {
+        const myTeam = DraftManager.state.myTeam;
+
         if (!myTeam || myTeam.length === 0) return '';
 
-        const isH2H = leagueType === 'h2h12';
-
-        // Get categories dynamically from Calculator LEAGUES config
-        const league = Calculator.LEAGUES[leagueType];
+        const league = Calculator.LEAGUES.active;
         const cats = league
             ? [...league.hitting, ...league.pitching].map(c => c.toUpperCase())
-            : (isH2H
-                ? ['R', 'HR', 'RBI', 'SB', 'AVG', 'OPS', 'W', 'K', 'ERA', 'WHIP', 'QS', 'NSVH']
-                : ['R', 'HR', 'RBI', 'SB', 'AVG', 'W', 'SV', 'K', 'ERA', 'WHIP']);
+            : ['R', 'HR', 'RBI', 'SB', 'AVG', 'W', 'SV', 'K', 'ERA', 'WHIP'];
             
         // Calculate Total Z-Scores for each cat
         const zTotals = {};
@@ -2618,59 +2344,69 @@ const App = {
 
     /**
      * Update Draft Assistant UI
-     * @param {string} leagueType - 'roto5x5' or 'h2h12'
      */
-    updateDraftAssistantUI(leagueType = 'roto5x5') {
+    updateDraftAssistantUI() {
         if (typeof DraftManager === 'undefined') return;
 
-        const isH2H = leagueType === 'h2h12';
-        const containerId = isH2H ? 'h2hMyTeamStats' : 'myTeamStats';
-        const nameInputId = isH2H ? 'h2hDraftTeamName' : 'draftTeamName';
-        
-        const stats = DraftManager.getMyTeamStats(leagueType);
-        const limit = this.leagueSettings[leagueType]?.inningsLimit || 1350;
+        const settings = this.leagueSettings.active;
+        const isAuction = settings.draftType === 'auction';
+        const scoringType = settings.scoringType || 'roto';
+
+        // Update draft title
+        const draftTitle = document.getElementById('draftTitle');
+        if (draftTitle) {
+            const typeLabel = scoringType === 'head' ? 'H2H' : 'Roto';
+            const modeLabel = isAuction ? 'Auction' : 'Snake';
+            draftTitle.textContent = `${typeLabel} ${modeLabel} Draft Assistant`;
+        }
+
+        // Show/hide auction-only sections
+        const bidAssistant = document.getElementById('activeBidAssistant');
+        const marketSection = document.getElementById('marketStatusSection');
+        if (bidAssistant) bidAssistant.classList.toggle('hidden', !isAuction);
+        if (marketSection) marketSection.classList.toggle('hidden', !isAuction);
+
+        const stats = DraftManager.getMyTeamStats();
+        const limit = settings.inningsLimit || 1350;
         const ipPct = Math.min(100, (stats.ip / limit) * 100);
         const ipColor = stats.ip > limit ? '#ef4444' : stats.ip > limit * 0.9 ? '#f59e0b' : '#3b82f6';
-        
+
         // Update Team Name Input if not focused
-        const nameInput = document.getElementById(nameInputId);
+        const nameInput = document.getElementById('draftTeamName');
         if (nameInput && document.activeElement !== nameInput) {
-             const state = DraftManager._getState(leagueType);
-             nameInput.value = state.myTeamName || 'bluezhin';
+             nameInput.value = DraftManager.state.myTeamName || 'bluezhin';
         }
 
         // Update Teams count input if not focused
-        const teamCountId = isH2H ? 'h2hDraftTeamCount' : 'draftTeamCount';
-        const teamCountInput = document.getElementById(teamCountId);
+        const teamCountInput = document.getElementById('draftTeamCount');
         if (teamCountInput && document.activeElement !== teamCountInput) {
-            teamCountInput.value = this.leagueSettings[leagueType]?.teams || 12;
+            teamCountInput.value = settings.teams || 12;
         }
 
         // Update My Team Stats display
-        const statsContainer = document.getElementById(containerId);
+        const statsContainer = document.getElementById('myTeamStats');
         if (statsContainer) {
             let inflationHtml = '';
-            
-            // --- MODULE 1: INFLATION TRACKER (H2H Only) ---
-            if (isH2H) {
+
+            // Inflation tracker (auction only)
+            if (isAuction) {
                 const inflationStats = DraftManager.calculateInflationStats(
-                    this.currentData.combined[leagueType],
-                    this.leagueSettings[leagueType],
-                    leagueType
+                    this.currentData.combined,
+                    settings
                 );
 
                 if (inflationStats) {
                     const rate = inflationStats.inflationRate;
-                    let bgColor = '#f1f5f9'; // Neutral gray
+                    let bgColor = '#f1f5f9';
                     let textColor = '#334155';
                     let statusText = 'Neutral';
 
                     if (rate > 1.05) {
-                        bgColor = '#fee2e2'; // Light Red (Inflation)
+                        bgColor = '#fee2e2';
                         textColor = '#b91c1c';
                         statusText = 'Inflated (Expensive)';
                     } else if (rate < 0.95) {
-                        bgColor = '#dcfce7'; // Light Green (Deflation)
+                        bgColor = '#dcfce7';
                         textColor = '#15803d';
                         statusText = 'Deflated (Value)';
                     }
@@ -2699,57 +2435,39 @@ const App = {
                     `;
                 }
             }
-            // ----------------------------------------------
 
-            let hittingStatsHtml = '';
-            let pitchingStatsHtml = '';
+            // Dynamic stats from active league categories
+            const league = Calculator.LEAGUES.active;
+            const catDisplayNames = {
+                'r': 'R', 'hr': 'HR', 'rbi': 'RBI', 'sb': 'SB', 'avg': 'AVG', 'ops': 'OPS',
+                'obp': 'OBP', 'w': 'W', 'sv': 'SV', 'k': 'K', 'era': 'ERA', 'whip': 'WHIP',
+                'qs': 'QS', 'hld': 'HLD', 'nsvh': 'NSVH'
+            };
+            const rateStatSet = new Set(['avg', 'ops', 'obp', 'era', 'whip']);
 
-            if (isH2H) {
-                // H2H 6x6 Stats
-                hittingStatsHtml = `
-                    <div>R: <strong>${Math.round(stats.r)}</strong></div>
-                    <div>HR: <strong>${Math.round(stats.hr)}</strong></div>
-                    <div>RBI: <strong>${Math.round(stats.rbi)}</strong></div>
-                    <div>SB: <strong>${Math.round(stats.sb)}</strong></div>
-                    <div title="Batting Average">AVG: <strong>${this.formatNumber(stats.avg, 3, '.000')}</strong></div>
-                    <div title="On-Base Plus Slugging">OPS: <strong>${this.formatNumber(stats.ops, 3, '.000')}</strong></div>
-                `;
-                pitchingStatsHtml = `
-                    <div>W: <strong>${Math.round(stats.w)}</strong></div>
-                    <div>K: <strong>${Math.round(stats.k)}</strong></div>
-                    <div title="Quality Starts">QS: <strong>${Math.round(stats.qs)}</strong></div>
-                    <div title="Saves + Holds">NSVH: <strong>${Math.round(stats.nsvh)}</strong></div>
-                    <div>ERA: <strong>${this.formatNumber(stats.era, 2)}</strong></div>
-                    <div>WHIP: <strong>${this.formatNumber(stats.whip, 2)}</strong></div>
-                `;
-            } else {
-                // Roto 5x5 Stats
-                hittingStatsHtml = `
-                    <div>AVG: <strong>${this.formatNumber(stats.avg, 3, '.000')}</strong></div>
-                    <div>HR: <strong>${Math.round(stats.hr)}</strong></div>
-                    <div>R: <strong>${Math.round(stats.r)}</strong></div>
-                    <div>RBI: <strong>${Math.round(stats.rbi)}</strong></div>
-                    <div>SB: <strong>${Math.round(stats.sb)}</strong></div>
-                `;
-                pitchingStatsHtml = `
-                    <div>ERA: <strong>${this.formatNumber(stats.era, 2)}</strong></div>
-                    <div>WHIP: <strong>${this.formatNumber(stats.whip, 2)}</strong></div>
-                    <div>W: <strong>${Math.round(stats.w)}</strong></div>
-                    <div>SV: <strong>${Math.round(stats.sv)}</strong></div>
-                    <div>K: <strong>${Math.round(stats.k)}</strong></div>
-                `;
-            }
+            const formatStat = (cat) => {
+                const val = stats[cat] ?? (cat === 'nsvh' ? stats.nsvh : 0);
+                const label = catDisplayNames[cat] || cat.toUpperCase();
+                const formatted = rateStatSet.has(cat)
+                    ? this.formatNumber(val, cat === 'avg' || cat === 'ops' || cat === 'obp' ? 3 : 2,
+                        cat === 'avg' || cat === 'ops' || cat === 'obp' ? '.000' : '0.00')
+                    : Math.round(val);
+                return `<div>${label}: <strong>${formatted}</strong></div>`;
+            };
 
-            const inningsHtml = (!isH2H) ? `
+            const hittingStatsHtml = league ? league.hitting.map(formatStat).join('') : '';
+            const pitchingStatsHtml = league ? league.pitching.map(formatStat).join('') : '';
+
+            const inningsHtml = `
                 <div style="margin-top: 10px; font-size: 0.85rem; color: #64748b;">
                     Innings: <strong>${Math.round(stats.ip)}</strong> / ${limit} (${Math.round(ipPct)}%)
                     <div style="background: #e2e8f0; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 4px;">
                         <div style="background: ${ipColor}; width: ${ipPct}%; height: 100%;"></div>
                     </div>
                 </div>
-            ` : '';
+            `;
 
-            const balanceHtml = this.renderBalanceDashboard(leagueType);
+            const balanceHtml = this.renderBalanceDashboard();
 
             statsContainer.innerHTML = `
                 ${inflationHtml}
@@ -2762,7 +2480,7 @@ const App = {
                         Hitters: <strong>${stats.hitters}</strong> | Pitchers: <strong>${stats.pitchers}</strong>
                     </p>
                 </div>
-                
+
                 <div class="stat-group" style="margin-top: 15px;">
                     <h4 style="color:#0284c7; border-bottom:1px solid #e0f2fe; padding-bottom:4px; margin-bottom:8px;">Hitting</h4>
                     <div class="stat-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.9rem;">
@@ -2777,57 +2495,54 @@ const App = {
                     </div>
                     ${inningsHtml}
                 </div>
-                
+
                 ${balanceHtml}
             `;
         }
-        
-        this.updateDraftRecommendations(leagueType);
 
-        // --- ROTO SCARCITY HEATMAP ---
-        if (!isH2H) {
-            const rotoScarcityContainer = document.getElementById('rotoScarcityHeatmap');
-            if (rotoScarcityContainer) {
-                const tiers = this.leagueSettings.scarcityTiers?.roto5x5 || [8, 6, 5, 3, 2, 1, 0];
-                const allPlayers = this.currentData.combined[leagueType] || [];
-                const scarcity = DraftManager.getScarcityData(allPlayers, leagueType, tiers);
-                rotoScarcityContainer.innerHTML = this.renderScarcityHeatmap(scarcity, false, tiers);
-            }
+        this.updateDraftRecommendations();
+
+        // Scarcity Heatmap (both modes)
+        const scarcityContainer = document.getElementById('scarcityHeatmap');
+        if (scarcityContainer) {
+            const defaultTiers = isAuction ? [30, 20, 15, 10, 5, 3] : [8, 6, 5, 3, 2, 1, 0];
+            const allPlayers = this.currentData.combined || [];
+            const scarcity = DraftManager.getScarcityData(allPlayers, scoringType, defaultTiers);
+            scarcityContainer.innerHTML = this.renderScarcityHeatmap(scarcity, isAuction, defaultTiers);
         }
     },
     /**
      * Update List A: Best Value Recommendations
-     * @param {string} leagueType - 'roto5x5' or 'h2h12'
      */
-    updateDraftRecommendations(leagueType = 'roto5x5') {
-        const isH2H = leagueType === 'h2h12';
-        const containerId = isH2H ? 'h2hRecommendations' : 'draftRecommendations';
-        const container = document.getElementById(containerId);
+    updateDraftRecommendations() {
+        const container = document.getElementById('draftRecommendations');
         if (!container) return;
 
-        // Get available players
-        const allPlayers = this.currentData.combined[leagueType] || [];
-        
-        // --- MODULE 2: SCARCITY HEATMAP (H2H Only) ---
-        if (isH2H) {
-            const tiers = this.leagueSettings.scarcityTiers?.h2h12 || [30, 20, 15, 10, 5, 3];
-            const scarcity = DraftManager.getScarcityData(allPlayers, leagueType, tiers);
-            container.innerHTML = this.renderScarcityHeatmap(scarcity, true, tiers);
-            return; // Skip standard recommendations for H2H
-        }
-        // ---------------------------------------------
+        const allPlayers = this.currentData.combined || [];
+        const isAuction = this.leagueSettings.active.draftType === 'auction';
 
-        const available = allPlayers.filter(p => !DraftManager.isPlayerTaken(p, leagueType));
+        // Market status section (auction only)
+        if (isAuction) {
+            const marketContainer = document.getElementById('marketRecommendations');
+            if (marketContainer) {
+                const scoringType = this.leagueSettings.active.scoringType || 'roto';
+                const tiers = [30, 20, 15, 10, 5, 3];
+                const scarcity = DraftManager.getScarcityData(allPlayers, scoringType, tiers);
+                marketContainer.innerHTML = this.renderScarcityHeatmap(scarcity, true, tiers);
+            }
+        }
+
+        const available = allPlayers.filter(p => !DraftManager.isPlayerTaken(p));
         
         if (available.length === 0) {
             container.innerHTML = '<p>No players available.</p>';
             return;
         }
 
-        // Score players based on "Best Available" + "Punt SV" logic
+        // Score players based on "Best Available"
         const scoredPlayers = available.map(p => ({
             ...p,
-            recScore: this.getRecommendationScore(p, leagueType)
+            recScore: this.getRecommendationScore(p)
         }));
 
         // Sort by Recommendation Score
@@ -2839,13 +2554,15 @@ const App = {
         container.innerHTML = top5.map((p, i) => {
             const isPitcher = p.type === 'pitcher';
             let statsHtml = '';
-            
+
             if (isPitcher) {
                 statsHtml = `ERA: ${this.formatNumber(p.era)} | WHIP: ${this.formatNumber(p.whip)} | K: ${p.k}`;
             } else {
                 statsHtml = `AVG: ${this.formatNumber(p.avg, 3, '.000')} | HR: ${p.hr} | SB: ${p.sb}`;
             }
-            
+
+            const valDisplay = isAuction ? `$${p.dollarValue || 0}` : `Z: ${this.formatNumber(p.zTotal, 1)}`;
+
             return `
                 <div class="recommendation-card rank-${i+1}">
                     <div class="rec-header">
@@ -2856,32 +2573,37 @@ const App = {
                     </div>
                     <div class="rec-team">${p.team}</div>
                     <div class="rec-stats" style="font-size: 0.8rem;">${statsHtml}</div>
-                    <div class="rec-value">Z: ${this.formatNumber(p.zTotal, 1)}</div>
+                    <div class="rec-value">${valDisplay}</div>
                 </div>
             `;
         }).join('');
-        
-        this.updateSmartRecommendations(leagueType);
+
+        this.updateSmartRecommendations();
     },
 
     /**
-     * Render Scarcity Heatmap (Generic for H2H & Roto)
+     * Render Scarcity Heatmap
+     * @param {Object} scarcity - Scarcity data from DraftManager
+     * @param {boolean} isAuction - True for auction (dollar tiers), false for snake (Z-score tiers)
+     * @param {Array} tiers - Tier thresholds
      */
-    renderScarcityHeatmap(scarcity, isH2H = true, tiers = null) {
+    renderScarcityHeatmap(scarcity, isAuction = false, tiers = null) {
         if (!scarcity) return '<p>No data available</p>';
 
-        const positions = isH2H 
+        // Positions depend on scoring type (roto includes CI/MI slots)
+        const scoringType = this.leagueSettings.active.scoringType || 'roto';
+        const positions = scoringType === 'head'
             ? ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'OF', 'SP', 'RP']
             : ['C', '1B', '2B', '3B', 'SS', 'CI', 'MI', 'LF', 'CF', 'RF', 'OF', 'SP', 'RP'];
-        
+
         let activeTiers = tiers;
         if (!activeTiers) {
-            activeTiers = isH2H 
-                ? [30, 20, 15, 10, 5, 3] 
+            activeTiers = isAuction
+                ? [30, 20, 15, 10, 5, 3]
                 : [8, 6, 5, 3, 2, 1, 0];
         }
 
-        const headers = activeTiers.map(t => isH2H ? `$${t}+` : `Z>${t}`);
+        const headers = activeTiers.map(t => isAuction ? `$${t}+` : `Z>${t}`);
         
         // Helper to get color based on count
         const getCellColor = (count) => {
@@ -2941,16 +2663,13 @@ const App = {
 
     /**
      * Update List B: Smart Team Needs Recommendations
-     * @param {string} leagueType - 'roto5x5' or 'h2h12'
      */
-    updateSmartRecommendations(leagueType = 'roto5x5') {
-        const isH2H = leagueType === 'h2h12';
-        const containerId = isH2H ? 'h2hSmartRecommendations' : 'smartRecommendations';
-        const container = document.getElementById(containerId);
+    updateSmartRecommendations() {
+        const container = document.getElementById('smartRecommendations');
         if (!container) return;
 
-        const allPlayers = this.currentData.combined[leagueType] || [];
-        const available = allPlayers.filter(p => !DraftManager.isPlayerTaken(p, leagueType));
+        const allPlayers = this.currentData.combined || [];
+        const available = allPlayers.filter(p => !DraftManager.isPlayerTaken(p));
         
         if (available.length === 0) {
             container.innerHTML = '<p>No players available.</p>';
@@ -2960,26 +2679,27 @@ const App = {
         // Score with "Need Factor"
         const scoredPlayers = available.map(p => ({
             ...p,
-            smartScore: this.getTeamNeedScore(p, leagueType)
+            smartScore: this.getTeamNeedScore(p)
         }));
 
         scoredPlayers.sort((a, b) => b.smartScore - a.smartScore);
         
         const top5 = scoredPlayers.slice(0, 5);
         
+        const isAuction = this.leagueSettings.active.draftType === 'auction';
+        const league = Calculator.LEAGUES.active;
+
         container.innerHTML = top5.map((p, i) => {
             const isPitcher = p.type === 'pitcher';
-            let statsHtml = '';
-            
-            if (isPitcher) {
-                statsHtml = isH2H
-                    ? `QS: ${Math.round(p.qs || 0)} | K: ${p.k}`
-                    : `ERA: ${this.formatNumber(p.era)} | K: ${p.k}`;
-            } else {
-                statsHtml = isH2H
-                    ? `OPS: ${this.formatNumber(p.ops, 3, '.000')} | HR: ${p.hr}`
-                    : `AVG: ${this.formatNumber(p.avg, 3, '.000')} | SB: ${p.sb}`;
-            }
+            const categories = isPitcher ? league.pitching : league.hitting;
+            // Show first 2-3 key stats from active categories
+            const statsArr = categories.slice(0, 3).map(cat => {
+                const val = Calculator.getStatValue(p, cat);
+                const isRate = ['avg', 'ops', 'era', 'whip'].includes(cat);
+                const formatted = isRate ? this.formatNumber(val, 3, '.000') : Math.round(val || 0);
+                return `${cat.toUpperCase()}: ${formatted}`;
+            });
+            const statsHtml = statsArr.join(' | ');
             
             // Generate tags based on why they were recommended
             let tags = [];
@@ -2999,7 +2719,10 @@ const App = {
                         <span class="rec-team" style="margin: 0;">${p.team}</span>
                     </div>
                     <div class="rec-stats" style="font-size: 0.8rem; background: #f0f9ff; color: #0c4a6e;">${statsHtml}</div>
-                    <div class="rec-value" style="color: #0284c7;">Score: ${this.formatNumber(p.smartScore, 1)}</div>
+                    <div class="rec-value" style="color: #0284c7;">
+                        ${isAuction ? `$${p.dollarValue || 0}` : `Z: ${this.formatNumber(p.zTotal, 1)}`}
+                        | Need: ${this.formatNumber(p.smartScore, 1)}
+                    </div>
                 </div>
             `;
         }).join('');
@@ -3008,8 +2731,8 @@ const App = {
     /**
      * Calculate dynamic position caps from rosterComposition
      */
-    calculatePositionCaps(leagueType) {
-        const composition = this.leagueSettings[leagueType]?.rosterComposition || [];
+    calculatePositionCaps() {
+        const composition = this.leagueSettings.active.rosterComposition || [];
         const caps = { 'C': 0, '1B': 0, '2B': 0, '3B': 0, 'SS': 0, 'OF': 0, 'SP': 0, 'RP': 0 };
 
         let bnCount = 0;
@@ -3047,11 +2770,11 @@ const App = {
      * Calculate category need multiplier based on team weaknesses
      * Uses categoryWeights to respect user preferences (weight=0 means ignore)
      */
-    calculateCategoryNeedMultiplier(player, myTeam, leagueType) {
-        const league = Calculator.LEAGUES[leagueType];
+    calculateCategoryNeedMultiplier(player, myTeam) {
+        const league = Calculator.LEAGUES.active;
         if (!league || myTeam.length === 0) return 1.0;
 
-        const weights = this.leagueSettings[leagueType]?.categoryWeights || {};
+        const weights = this.leagueSettings.active.categoryWeights || {};
         const categories = player.type === 'hitter' ? league.hitting : league.pitching;
 
         // Sum z-scores for each category across my team
@@ -3099,12 +2822,11 @@ const App = {
     /**
      * Calculate Team Need Score (Smart Logic)
      */
-    getTeamNeedScore(player, leagueType = 'roto5x5') {
+    getTeamNeedScore(player) {
         // Base score from weighted Z-Total
-        let score = this.getRecommendationScore(player, leagueType);
+        let score = this.getRecommendationScore(player);
 
-        const state = DraftManager._getState(leagueType);
-        const myTeam = state.myTeam || [];
+        const myTeam = DraftManager.state.myTeam || [];
 
         player.isNeedFit = false;
         player.isScarcityPick = false;
@@ -3132,7 +2854,7 @@ const App = {
         });
 
         // Dynamic position caps from roster composition
-        const caps = this.calculatePositionCaps(leagueType);
+        const caps = this.calculatePositionCaps();
 
         let posMultiplier = 1.0;
 
@@ -3157,8 +2879,8 @@ const App = {
             if (player.isPitcherSP && posCounts.SP >= caps.SP) posMultiplier = 0.8;
             if (player.isPitcherRP && posCounts.RP >= caps.RP) posMultiplier = 0.8;
 
-            const stats = DraftManager.getMyTeamStats(leagueType);
-            const limit = this.leagueSettings[leagueType]?.inningsLimit || 1400;
+            const stats = DraftManager.getMyTeamStats();
+            const limit = this.leagueSettings.active.inningsLimit || 1400;
             if (stats.ip > limit * 0.95 && player.isPitcherSP) {
                 posMultiplier = 0.5;
             }
@@ -3167,7 +2889,7 @@ const App = {
         score *= posMultiplier;
 
         // --- 2. CATEGORY NEED (Dynamic Balancing) ---
-        score *= this.calculateCategoryNeedMultiplier(player, myTeam, leagueType);
+        score *= this.calculateCategoryNeedMultiplier(player, myTeam);
 
         return score;
     },
@@ -3176,9 +2898,9 @@ const App = {
      * Calculate Recommendation Score
      * Applies category weights to z-score calculation
      */
-    getRecommendationScore(player, leagueType = 'roto5x5') {
-        const league = Calculator.LEAGUES[leagueType];
-        const weights = this.leagueSettings[leagueType]?.categoryWeights || {};
+    getRecommendationScore(player) {
+        const league = Calculator.LEAGUES.active;
+        const weights = this.leagueSettings.active.categoryWeights || {};
 
         // Recalculate weighted zTotal based on category weights
         let score = 0;

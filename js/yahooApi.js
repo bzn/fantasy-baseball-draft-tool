@@ -201,32 +201,31 @@ const YahooApi = {
     },
 
     /**
-     * Restore Calculator.LEAGUES from saved settings
+     * Restore Calculator.LEAGUES.active from saved settings
      */
     restoreLeagueSettings(settings) {
-        if (!settings || !settings.leagueKey) return;
+        if (!settings) return;
 
-        const leagueKey = settings.leagueKey;
-
-        // Rebuild Calculator.LEAGUES entry from saved settings (same as applyLeagueSettings)
+        // Rebuild Calculator.LEAGUES.active from saved settings
         if (settings.hitting_categories && settings.pitching_categories) {
-            Calculator.LEAGUES[leagueKey] = {
-                name: settings.name || Calculator.LEAGUES[leagueKey]?.name || leagueKey,
+            Calculator.LEAGUES.active = {
+                name: settings.name || 'Yahoo League',
                 hitting: settings.hitting_categories,
                 pitching: settings.pitching_categories,
-                invertedStats: settings.inverted_stats || Calculator.LEAGUES[leagueKey]?.invertedStats || [],
+                invertedStats: settings.inverted_stats || [],
                 hittingCount: settings.hitting_categories.length,
                 pitchingCount: settings.pitching_categories.length,
             };
         }
 
-        // Restore App.leagueSettings if available
+        // Restore App.leagueSettings.active
         if (typeof App !== 'undefined' && settings.num_teams) {
-            App.leagueSettings[leagueKey] = {
-                ...App.leagueSettings[leagueKey],
+            App.leagueSettings.active = {
+                ...App.leagueSettings.active,
                 name: settings.name,
+                scoringType: settings.scoring_type || null,
+                draftType: settings.draft_type || null,
                 teams: settings.num_teams,
-                draftType: settings.draft_type,
                 budget: settings.is_auction ? settings.salary_cap : 260,
                 rosterHitters: settings.roster_hitters,
                 rosterPitchers: settings.roster_pitchers,
@@ -239,9 +238,9 @@ const YahooApi = {
             App.renderStep4Settings();
         }
 
-        // Update tab visibility for this league type
-        if (typeof App !== 'undefined' && App.updateTabsForLeague) {
-            App.updateTabsForLeague(settings.leagueKey);
+        // Enable tabs
+        if (typeof App !== 'undefined' && App.enableTabs) {
+            App.enableTabs();
         }
     },
 
@@ -480,11 +479,8 @@ const YahooApi = {
      * Apply Yahoo league settings to the app's calculator and settings
      */
     applyLeagueSettings(settings) {
-        // Build a dynamic league config for the Calculator
-        const leagueKey = settings.scoring_type === 'head' ? 'h2h12' : 'roto5x5';
-
-        // Update Calculator LEAGUES dynamically
-        Calculator.LEAGUES[leagueKey] = {
+        // Update Calculator.LEAGUES.active dynamically
+        Calculator.LEAGUES.active = {
             name: settings.name,
             hitting: settings.hitting_categories,
             pitching: settings.pitching_categories,
@@ -493,12 +489,13 @@ const YahooApi = {
             pitchingCount: settings.pitching_categories.length,
         };
 
-        // Update App league settings
-        App.leagueSettings[leagueKey] = {
-            ...App.leagueSettings[leagueKey],
+        // Update App.leagueSettings.active (scoring type and draft type are independent)
+        App.leagueSettings.active = {
+            ...App.leagueSettings.active,
             name: settings.name,
+            scoringType: settings.scoring_type,   // 'roto' or 'head'
+            draftType: settings.draft_type,       // 'standard' or 'auction'
             teams: settings.num_teams,
-            draftType: settings.draft_type, // "standard" or "auction"
             budget: settings.is_auction ? settings.salary_cap : 260,
             rosterHitters: settings.roster_hitters,
             rosterPitchers: settings.roster_pitchers,
@@ -509,43 +506,40 @@ const YahooApi = {
         localStorage.setItem('fantasy_settings', JSON.stringify(App.leagueSettings));
 
         // Store the parsed settings for later use
-        this._currentSettings = { ...settings, leagueKey }; // Add leagueKey for restoration
+        this._currentSettings = { ...settings };
 
         // Save complete settings for session restoration
         localStorage.setItem('yahoo_league_settings', JSON.stringify(this._currentSettings));
 
         // Also update Settings tab UI to reflect synced values
-        this.syncSettingsTabUI(leagueKey, settings);
+        this.syncSettingsTabUI(settings);
 
         // Recalculate if data is loaded
         if (App.currentData.merged || App.currentData.hitters || App.currentData.pitchers) {
             App.calculateValues();
         }
 
-        // Update tab visibility for this league type
-        App.updateTabsForLeague(leagueKey);
+        // Enable tabs
+        App.enableTabs();
 
         // Auto-sync my team name from Yahoo
-        this.syncMyTeamName(settings);
+        this.syncMyTeamName();
     },
 
     /**
      * Fetch my team name from Yahoo and set it in DraftManager
      */
-    async syncMyTeamName(settings) {
+    async syncMyTeamName() {
         if (!this.selectedLeague) return;
-
-        const leagueKey = settings.scoring_type === 'head' ? 'h2h12' : 'roto5x5';
 
         try {
             const teams = await this.fetchTeams(this.selectedLeague.league_key);
             const myTeam = teams?.find(t => t.is_owned_by_current_login);
             if (myTeam && typeof DraftManager !== 'undefined') {
-                DraftManager.setTeamName(myTeam.name, leagueKey);
+                DraftManager.setTeamName(myTeam.name);
 
                 // Update Draft page input field if not currently focused
-                const nameInputId = leagueKey === 'h2h12' ? 'h2hDraftTeamName' : 'draftTeamName';
-                const nameInput = document.getElementById(nameInputId);
+                const nameInput = document.getElementById('draftTeamName');
                 if (nameInput && document.activeElement !== nameInput) {
                     nameInput.value = myTeam.name;
                 }
@@ -906,7 +900,7 @@ const YahooApi = {
     /**
      * Sync Settings tab UI fields with Yahoo league data
      */
-    syncSettingsTabUI(leagueKey, settings) {
+    syncSettingsTabUI(settings) {
         // Trigger Step 4 UI update in Setup tab
         if (typeof App !== 'undefined' && App.renderStep4Settings) {
             App.renderStep4Settings();

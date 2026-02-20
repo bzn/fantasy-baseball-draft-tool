@@ -4,23 +4,15 @@
  */
 
 const Calculator = {
-    // League configurations
+    // League configuration - single active league (populated by Yahoo API or defaults)
     LEAGUES: {
-        roto5x5: {
-            name: 'Roto 5x5',
+        active: {
+            name: 'Default 5x5',
             hitting: ['r', 'hr', 'rbi', 'sb', 'avg'],
             pitching: ['w', 'sv', 'k', 'era', 'whip'],
             invertedStats: ['era', 'whip'],
             hittingCount: 5,
             pitchingCount: 5
-        },
-        h2h12: {
-            name: 'H2H 6x6',
-            hitting: ['r', 'hr', 'rbi', 'sb', 'avg', 'ops'],
-            pitching: ['w', 'k', 'era', 'whip', 'qs', 'nsvh'],  // Using 'k' as alias for SO
-            invertedStats: ['era', 'whip'],
-            hittingCount: 6,
-            pitchingCount: 6
         }
     },
 
@@ -53,7 +45,7 @@ const Calculator = {
      * @param {number} draftableCount - Number of players to use for baseline calculation (0 = use all)
      * @returns {Array} Players with Z-scores added
      */
-    calculateZScores(players, leagueType = 'h2h12', playerType = 'hitter', weights = {}, draftableCount = 0) {
+    calculateZScores(players, leagueType = 'active', playerType = 'hitter', weights = {}, draftableCount = 0) {
         if (!players || players.length === 0) return [];
 
         const league = this.LEAGUES[leagueType];
@@ -358,7 +350,7 @@ const Calculator = {
     /**
      * Get category breakdown for a player
      */
-    getCategoryBreakdown(player, leagueType = 'h2h12') {
+    getCategoryBreakdown(player, leagueType = 'active') {
         const league = this.LEAGUES[leagueType];
         const categories = player.type === 'hitter' ? league.hitting : league.pitching;
 
