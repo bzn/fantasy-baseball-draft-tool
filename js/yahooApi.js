@@ -21,7 +21,7 @@ const YahooApi = {
         13: 'rbi',
         16: 'sb',
         3:  'avg',
-        55: 'obp',
+        55: 'obp',    // Note: Yahoo reuses 55 for OPS in some leagues; display_name takes priority
         56: 'slg',
         57: 'ops',
         8:  'h',
@@ -47,7 +47,8 @@ const YahooApi = {
         37: 'er',       // Earned Runs
         35: 'ha',       // Hits Allowed
         41: 'hra',      // Home Runs Allowed
-        // NSVH: Yahoo may calculate from SV+HLD, or use league-specific custom stat
+        83: 'qs',       // Quality Starts (alternate id)
+        90: 'nsvh',     // Net Saves + Holds
     },
 
     // Display-only stat IDs - these accompany real categories but aren't scored
@@ -233,6 +234,24 @@ const YahooApi = {
             };
         }
 
+        // Restore per-league weights from localStorage
+        if (typeof App !== 'undefined' && this.selectedLeague && this.selectedLeague.league_key) {
+            const savedWeights = localStorage.getItem('league_weights_' + this.selectedLeague.league_key);
+            if (savedWeights) {
+                try {
+                    const parsed = JSON.parse(savedWeights);
+                    if (parsed.categoryWeights) {
+                        App.leagueSettings.active.categoryWeights = parsed.categoryWeights;
+                    }
+                    if (parsed.hitterPitcherSplit) {
+                        App.leagueSettings.active.hitterPitcherSplit = parsed.hitterPitcherSplit;
+                    }
+                } catch (e) {
+                    // ignore parse errors
+                }
+            }
+        }
+
         // Trigger UI update in App
         if (typeof App !== 'undefined' && App.renderStep4Settings) {
             App.renderStep4Settings();
@@ -354,13 +373,16 @@ const YahooApi = {
         // Map Yahoo stat categories to our internal names
         // Filter out display-only stats (H/AB accompanies AVG, IP accompanies ERA/WHIP)
         yahooSettings.stat_categories.forEach(cat => {
-            // Skip known display-only stat IDs
+            // Skip display-only stats (e.g. OBP when OPS is the real category)
+            if (cat.is_only_display_stat) return;
+            // Skip known display-only stat IDs (e.g. H/AB accompanies AVG)
             if (this.DISPLAY_ONLY_STAT_IDS.has(cat.stat_id)) return;
 
-            // Try STAT_ID_MAP first, then fallback to display name mapping
-            let internalName = this.STAT_ID_MAP[cat.stat_id];
-            if (!internalName && cat.name) {
-                internalName = this.STAT_NAME_MAP[cat.name.toUpperCase()];
+            // Try display name first (authoritative), then fallback to stat_id mapping
+            // Yahoo reuses some stat_ids for different stats (e.g. stat_id 55 = OBP or OPS)
+            let internalName = cat.name ? this.STAT_NAME_MAP[cat.name.toUpperCase()] : null;
+            if (!internalName) {
+                internalName = this.STAT_ID_MAP[cat.stat_id];
             }
             if (!internalName) {
                 console.warn(`Unknown Yahoo stat: id=${cat.stat_id}, name="${cat.name}" — skipped`);
@@ -510,6 +532,33 @@ const YahooApi = {
 
         // Save complete settings for session restoration
         localStorage.setItem('yahoo_league_settings', JSON.stringify(this._currentSettings));
+
+        // Restore per-league weights from localStorage (or initialize to 1.0)
+        const leagueKey = this.selectedLeague ? this.selectedLeague.league_key : null;
+        if (leagueKey) {
+            const savedWeights = localStorage.getItem('league_weights_' + leagueKey);
+            if (savedWeights) {
+                try {
+                    const parsed = JSON.parse(savedWeights);
+                    if (parsed.categoryWeights) {
+                        App.leagueSettings.active.categoryWeights = parsed.categoryWeights;
+                    }
+                    if (parsed.hitterPitcherSplit) {
+                        App.leagueSettings.active.hitterPitcherSplit = parsed.hitterPitcherSplit;
+                    }
+                } catch (e) {
+                    // ignore parse errors
+                }
+            } else {
+                // Fresh league: initialize all category weights to 1.0
+                const allCats = [].concat(settings.hitting_categories, settings.pitching_categories);
+                const freshWeights = {};
+                allCats.forEach(cat => { freshWeights[cat] = 1.0; });
+                App.leagueSettings.active.categoryWeights = freshWeights;
+            }
+            // Persist current state
+            localStorage.setItem('fantasy_settings', JSON.stringify(App.leagueSettings));
+        }
 
         // Also update Settings tab UI to reflect synced values
         this.syncSettingsTabUI(settings);

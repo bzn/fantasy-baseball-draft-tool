@@ -222,11 +222,19 @@ function handleSettings($apiBase, $tokens) {
         if (isset($settingsData['stat_categories']['stats'])) {
             foreach ($settingsData['stat_categories']['stats'] as $stat) {
                 $s = $stat['stat'];
+                $isDisplayOnly = 0;
+                // Yahoo may flag display-only stats at stat level or category level
+                if (isset($s['is_only_display_stat'])) {
+                    $isDisplayOnly = (int)$s['is_only_display_stat'];
+                } elseif (isset($stat['is_only_display_stat'])) {
+                    $isDisplayOnly = (int)$stat['is_only_display_stat'];
+                }
                 $statCategories[] = [
                     'stat_id'   => (int)$s['stat_id'],
                     'name'      => $s['display_name'],
                     'sort_order' => $s['sort_order'] ?? '1', // 1=desc (higher is better), 0=asc (lower is better)
                     'position_type' => $s['position_type'] ?? '', // B=batter, P=pitcher
+                    'is_only_display_stat' => $isDisplayOnly,
                 ];
             }
         }

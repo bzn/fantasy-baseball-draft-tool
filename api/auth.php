@@ -51,7 +51,7 @@ if ($clientId && $clientSecret) {
 }
 
 // Set defaults for missing config values
-$config['redirect_uri'] = $config['redirect_uri'] ?? 'http://localhost/fantasy-baseball-draft/api/auth.php?action=callback';
+$config['redirect_uri'] = $config['redirect_uri'] ?? 'https://localhost/fantasy-baseball-draft-tool/api/callback.php';
 $config['auth_url'] = $config['auth_url'] ?? 'https://api.login.yahoo.com/oauth2/request_auth';
 $config['token_url'] = $config['token_url'] ?? 'https://api.login.yahoo.com/oauth2/get_token';
 $config['api_base'] = $config['api_base'] ?? 'https://fantasysports.yahooapis.com/fantasy/v2';

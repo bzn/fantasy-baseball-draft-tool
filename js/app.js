@@ -367,6 +367,16 @@ const App = {
         }
 
         localStorage.setItem('fantasy_settings', JSON.stringify(this.leagueSettings));
+
+        // Save per-league weights so switching leagues preserves each league's settings
+        if (typeof YahooApi !== 'undefined' && YahooApi.selectedLeague && YahooApi.selectedLeague.league_key) {
+            const leagueKey = YahooApi.selectedLeague.league_key;
+            localStorage.setItem('league_weights_' + leagueKey, JSON.stringify({
+                categoryWeights: settings.categoryWeights,
+                hitterPitcherSplit: settings.hitterPitcherSplit,
+            }));
+        }
+
         alert('Settings saved!');
 
         // Recalculate values with new settings
@@ -594,9 +604,9 @@ const App = {
             }
         }
         comparisons.sort((a, b) => b.avgGap - a.avgGap);
-        const top30 = comparisons.slice(0, 30);
+        const top50 = comparisons.slice(0, 50);
         const result = new Set();
-        for (const item of top30) {
+        for (const item of top50) {
             result.add(item.player.name + '|' + (item.player.playerType || ''));
         }
         return result;
@@ -671,9 +681,9 @@ const App = {
 
         // Sort by avgGap descending (most undervalued by player average)
         comparisons.sort((a, b) => b.avgGap - a.avgGap);
-        const top30 = comparisons.slice(0, 30);
+        const top50 = comparisons.slice(0, 50);
 
-        if (top30.length === 0) {
+        if (top50.length === 0) {
             container.innerHTML = '<p style="color:#64748b;">No matchable players found.</p>';
             return;
         }
@@ -685,12 +695,12 @@ const App = {
 
         let html = `
             <div style="margin-bottom: 12px; font-size: 0.9em; color: #64748b;">
-                Mode: <strong>${modeLabel}</strong> | Top 30 most undervalued (sorted by Avg Gap)
+                Mode: <strong>${modeLabel}</strong> | Top 50 most undervalued (sorted by Avg Gap)
             </div>
             <div style="display: grid; gap: 8px;">
         `;
 
-        top30.forEach((item, i) => {
+        top50.forEach((item, i) => {
             const p = item.player;
             const pos = p.positionString || p.positions || '';
             const gapColor = item.gap > 0 ? '#16a34a' : '#dc2626';
@@ -2881,7 +2891,7 @@ const App = {
         return `
             <div class="scarcity-panel" style="background:white; padding:10px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
                 <h4 style="margin-top:0; color:#334155; border-bottom:2px solid #e2e8f0; padding-bottom:8px; margin-bottom:10px; font-size: 1rem;">
-                    Positional Scarcity (${isH2H ? '$ Value' : 'Z-Score'})
+                    Positional Scarcity (${isAuction ? '$ Value' : 'Z-Score'})
                 </h4>
                 <table style="width:100%; border-collapse: collapse;">
                     <thead>

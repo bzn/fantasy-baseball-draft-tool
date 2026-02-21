@@ -396,7 +396,7 @@ const Parser = {
             } else if (col.endsWith('Pct') || col === 'lobPct' || col === 'gbPct') {
                 // Percentage columns - remove % and convert to decimal
                 player[col] = this.parsePercentage(value);
-            } else if (col === 'avg' || col === 'obp' || col === 'slg' || col === 'iso' ||
+            } else if (col === 'avg' || col === 'obp' || col === 'slg' || col === 'ops' || col === 'iso' ||
                        col === 'babip' || col === 'woba' || col === 'era' || col === 'whip' || col === 'fip') {
                 // Decimal stats
                 player[col] = this.parseFloat(value);
