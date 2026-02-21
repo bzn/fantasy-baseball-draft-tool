@@ -17,6 +17,7 @@
             <button class="tab-btn active" data-tab="setup">Setup</button>
             <button class="tab-btn" data-tab="rankings" id="tabRankings" disabled>Rankings</button>
             <button class="tab-btn" data-tab="draft" id="tabDraft" disabled>Draft</button>
+            <button class="tab-btn" data-tab="undervalued" id="tabUndervalued" disabled>Undervalued</button>
         </nav>
 
         <!-- Setup Tab -->
@@ -268,6 +269,17 @@ Select All (Ctrl+A) → Copy (Ctrl+C) → Paste here (Ctrl+V)"></textarea>
                         <div id="scarcityHeatmap" style="margin-top: 10px;"></div>
                     </div>
                 </div>
+            </div>
+        </section>
+
+        <!-- Undervalued Tab -->
+        <section id="undervalued" class="tab-content">
+            <div class="players-section">
+                <h2 id="undervaluedTitle">Yahoo Undervalued Players</h2>
+                <p class="help-text" style="margin-bottom: 16px;">
+                    Players most undervalued by Yahoo's Draft Analysis compared to our calculated rankings.
+                </p>
+                <div id="undervaluedContent"></div>
             </div>
         </section>
 

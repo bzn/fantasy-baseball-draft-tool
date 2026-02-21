@@ -7,7 +7,8 @@ const App = {
         hitters: null,      // Original FanGraphs hitter projections
         pitchers: null,     // Original FanGraphs pitcher projections
         merged: null,       // Merged data (FanGraphs + Yahoo positions)
-        combined: []        // Single combined player list for active league
+        combined: [],       // Single combined player list for active league
+        yahooAdp: null      // Yahoo Draft Analysis ADP/salary data
     },
 
     // Sort state
@@ -50,6 +51,7 @@ const App = {
             YahooApi.init();
         }
         await this.loadDataFromFiles();
+        await this.loadYahooAdpData();
         this.updateDataInfo();
         this.updateSetupStatus();
         this.applySettingsToUI();
@@ -485,6 +487,8 @@ const App = {
             this.updateRankingsTable();
         } else if (tabId === 'draft') {
             this.updateDraftAssistantUI();
+        } else if (tabId === 'undervalued') {
+            this.updateUndervaluedTab();
         }
     },
 
@@ -494,8 +498,238 @@ const App = {
     enableTabs() {
         const rankingsBtn = document.getElementById('tabRankings');
         const draftBtn = document.getElementById('tabDraft');
+        const undervaluedBtn = document.getElementById('tabUndervalued');
         if (rankingsBtn) rankingsBtn.disabled = false;
         if (draftBtn) draftBtn.disabled = false;
+        if (undervaluedBtn) undervaluedBtn.disabled = false;
+    },
+
+    /**
+     * Load Yahoo ADP data from static JSON
+     */
+    async loadYahooAdpData() {
+        try {
+            const resp = await fetch('data/yahoo_adp.json');
+            if (resp.ok) {
+                this.currentData.yahooAdp = await resp.json();
+                console.log('Yahoo ADP data loaded:',
+                    this.currentData.yahooAdp.standard?.length, 'standard,',
+                    this.currentData.yahooAdp.salary?.length, 'salary');
+            }
+        } catch (e) {
+            console.warn('Failed to load Yahoo ADP data:', e);
+        }
+    },
+
+    /**
+     * Normalize a player name for matching: lowercase, strip accents, remove suffixes
+     */
+    normalizeName(name) {
+        return name
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/\s*\(batter\)\s*/i, '')
+            .replace(/\s*\(pitcher\)\s*/i, '')
+            .replace(/\./g, '')
+            .trim();
+    },
+
+    /**
+     * Match a Yahoo player to our player list
+     * Handles (Batter)/(Pitcher) suffix to match correct playerType
+     */
+    matchPlayer(yahooEntry, ourPlayers) {
+        const yName = this.normalizeName(yahooEntry.name);
+        const rawName = yahooEntry.name || '';
+        // Detect player type hint from Yahoo name suffix
+        const isBatter = /\(batter\)/i.test(rawName);
+        const isPitcher = /\(pitcher\)/i.test(rawName);
+
+        const typeFilter = (p) => {
+            if (isBatter) return p.playerType === 'hitter';
+            if (isPitcher) return p.playerType === 'pitcher';
+            return true;
+        };
+
+        // Exact normalized name match
+        let match = ourPlayers.find(p => this.normalizeName(p.name) === yName && typeFilter(p));
+        if (match) return match;
+
+        // Fuzzy: last name + team match
+        const yLastName = yName.split(' ').pop();
+        const yTeam = yahooEntry.team.toUpperCase();
+        const teamAliases = { 'KC': 'KCR', 'SD': 'SDP', 'SF': 'SFG', 'TB': 'TBR', 'AZ': 'ARI', 'WSH': 'WSN', 'CWS': 'CHW' };
+        const yTeamNorm = teamAliases[yTeam] || yTeam;
+        match = ourPlayers.find(p => {
+            const pName = this.normalizeName(p.name);
+            const pLast = pName.split(' ').pop();
+            const pTeam = (p.team || '').toUpperCase();
+            return pLast === yLastName && (pTeam === yTeam || pTeam === yTeamNorm) && typeFilter(p);
+        });
+        return match || null;
+    },
+
+    /**
+     * Get the set of undervalued top 30 player keys (name + playerType) for badge display
+     */
+    getUndervaluedSet() {
+        const yahooAdp = this.currentData.yahooAdp;
+        const ourPlayers = this.currentData.combined || [];
+        if (!yahooAdp || ourPlayers.length === 0) return new Set();
+
+        const isAuction = this.leagueSettings.active.draftType === 'auction';
+        const yahooList = isAuction ? yahooAdp.salary : yahooAdp.standard;
+        if (!yahooList) return new Set();
+
+        const comparisons = [];
+        for (const yEntry of yahooList) {
+            const ourPlayer = this.matchPlayer(yEntry, ourPlayers);
+            if (!ourPlayer) continue;
+            if (isAuction) {
+                const avgGap = (ourPlayer.dollarValue || 0) - (yEntry.avgCost || 0);
+                comparisons.push({ player: ourPlayer, avgGap });
+            } else {
+                const avgGap = (yEntry.adp || 9999) - (ourPlayer.overallRank || 9999);
+                comparisons.push({ player: ourPlayer, avgGap });
+            }
+        }
+        comparisons.sort((a, b) => b.avgGap - a.avgGap);
+        const top30 = comparisons.slice(0, 30);
+        const result = new Set();
+        for (const item of top30) {
+            result.add(item.player.name + '|' + (item.player.playerType || ''));
+        }
+        return result;
+    },
+
+    /**
+     * Update the Undervalued tab content
+     */
+    updateUndervaluedTab() {
+        const container = document.getElementById('undervaluedContent');
+        if (!container) return;
+
+        const yahooAdp = this.currentData.yahooAdp;
+        const ourPlayers = this.currentData.combined || [];
+
+        if (!yahooAdp || ourPlayers.length === 0) {
+            container.innerHTML = '<p style="color:#64748b;">No data available. Load projections and connect to a Yahoo league first.</p>';
+            return;
+        }
+
+        const isAuction = this.leagueSettings.active.draftType === 'auction';
+        const yahooList = isAuction ? yahooAdp.salary : yahooAdp.standard;
+
+        if (!yahooList || yahooList.length === 0) {
+            container.innerHTML = '<p style="color:#64748b;">No Yahoo ADP data for this draft mode.</p>';
+            return;
+        }
+
+        // Build comparison list
+        const comparisons = [];
+        for (const yEntry of yahooList) {
+            const ourPlayer = this.matchPlayer(yEntry, ourPlayers);
+            if (!ourPlayer) continue;
+            const isTaken = typeof DraftManager !== 'undefined' && DraftManager.isPlayerTaken(ourPlayer);
+
+            if (isAuction) {
+                // Salary: Gap = Our$ - Yahoo$. Positive = Yahoo undervalues.
+                const ourVal = ourPlayer.dollarValue || 0;
+                const yahooProj = yEntry.projCost || 0;
+                const yahooAvg = yEntry.avgCost || 0;
+                const gap = ourVal - yahooProj;
+                const avgGap = ourVal - yahooAvg;
+                comparisons.push({
+                    player: ourPlayer, isTaken,
+                    ourDisplay: '$' + Math.round(ourVal),
+                    yahooDisplay: '$' + yahooProj,
+                    yahooAvgDisplay: '$' + yahooAvg.toFixed(1),
+                    gap: gap,
+                    gapDisplay: (gap >= 0 ? '+$' : '-$') + Math.abs(gap).toFixed(0),
+                    avgGap: avgGap,
+                    avgGapDisplay: (avgGap >= 0 ? '+$' : '-$') + Math.abs(avgGap).toFixed(1)
+                });
+            } else {
+                // Standard: Gap = YahooRank - OurRank. Positive = Yahoo undervalues.
+                const ourRank = ourPlayer.overallRank || 9999;
+                const yahooRank = yEntry.yahooRank || 9999;
+                const yahooAdpVal = yEntry.adp || 9999;
+                const gap = yahooRank - ourRank;
+                const avgGap = yahooAdpVal - ourRank;
+                comparisons.push({
+                    player: ourPlayer, isTaken,
+                    ourDisplay: '#' + ourRank,
+                    yahooDisplay: '#' + yahooRank,
+                    yahooAvgDisplay: '#' + yahooAdpVal.toFixed(1),
+                    gap: gap,
+                    gapDisplay: (gap >= 0 ? '+' : '') + gap,
+                    avgGap: avgGap,
+                    avgGapDisplay: (avgGap >= 0 ? '+' : '') + avgGap.toFixed(1)
+                });
+            }
+        }
+
+        // Sort by avgGap descending (most undervalued by player average)
+        comparisons.sort((a, b) => b.avgGap - a.avgGap);
+        const top30 = comparisons.slice(0, 30);
+
+        if (top30.length === 0) {
+            container.innerHTML = '<p style="color:#64748b;">No matchable players found.</p>';
+            return;
+        }
+
+        const modeLabel = isAuction ? 'Salary Cap' : 'Standard';
+        const ourLabel = isAuction ? 'Our $' : 'Our Rank';
+        const yahooLabel = isAuction ? 'Yahoo$' : 'Yahoo';
+        const avgLabel = isAuction ? 'Avg$' : 'Avg ADP';
+
+        let html = `
+            <div style="margin-bottom: 12px; font-size: 0.9em; color: #64748b;">
+                Mode: <strong>${modeLabel}</strong> | Top 30 most undervalued (sorted by Avg Gap)
+            </div>
+            <div style="display: grid; gap: 8px;">
+        `;
+
+        top30.forEach((item, i) => {
+            const p = item.player;
+            const pos = p.positionString || p.positions || '';
+            const gapColor = item.gap > 0 ? '#16a34a' : '#dc2626';
+            const avgGapColor = item.avgGap > 0 ? '#16a34a' : '#dc2626';
+            const takenStyle = item.isTaken ? 'opacity: 0.5; text-decoration: line-through;' : '';
+            const takenBadge = item.isTaken ? '<span style="color:#dc2626; font-size:0.7em; font-weight:bold; margin-left:6px; text-decoration:none; display:inline-block;">(TAKEN)</span>' : '';
+            html += `
+                <div style="display: grid; grid-template-columns: 32px 1fr repeat(5, auto); align-items: center; gap: 10px; padding: 10px 14px; background: ${item.isTaken ? '#f3f4f6' : '#f8fafc'}; border-radius: 8px; border: 1px solid #e2e8f0;">
+                    <span style="font-size: 1.2em; font-weight: 700; color: #94a3b8;">${i + 1}</span>
+                    <div style="min-width: 140px;">
+                        <div style="${takenStyle}"><span style="font-weight: 600; font-size: 0.95em;">${p.name}</span>${takenBadge}</div>
+                        <div style="font-size: 0.8em; color: #64748b;">${p.team || ''} - ${pos}</div>
+                    </div>
+                    <div style="text-align: center; min-width: 55px;">
+                        <div style="font-size: 0.7em; color: #94a3b8;">Ours</div>
+                        <div style="font-weight: 600; font-size: 0.95em;">${item.ourDisplay}</div>
+                    </div>
+                    <div style="text-align: center; min-width: 55px;">
+                        <div style="font-size: 0.7em; color: #94a3b8;">${yahooLabel}</div>
+                        <div style="font-weight: 600; font-size: 0.95em;">${item.yahooDisplay}</div>
+                    </div>
+                    <div style="text-align: center; min-width: 50px;">
+                        <div style="font-size: 0.7em; color: #94a3b8;">Gap</div>
+                        <div style="font-weight: 700; color: ${gapColor}; font-size: 1em;">${item.gapDisplay}</div>
+                    </div>
+                    <div style="text-align: center; min-width: 55px;">
+                        <div style="font-size: 0.7em; color: #94a3b8;">${avgLabel}</div>
+                        <div style="font-weight: 600; font-size: 0.95em;">${item.yahooAvgDisplay}</div>
+                    </div>
+                    <div style="text-align: center; min-width: 50px;">
+                        <div style="font-size: 0.7em; color: #94a3b8;">Gap</div>
+                        <div style="font-weight: 700; color: ${avgGapColor}; font-size: 1em;">${item.avgGapDisplay}</div>
+                    </div>
+                </div>
+            `;
+        });
+
+        html += '</div>';
+        container.innerHTML = html;
     },
 
     /**
@@ -1003,12 +1237,15 @@ const App = {
         };
 
         // Generate table rows
+        const uvSet = this.getUndervaluedSet();
         tbody.innerHTML = players.map((player, index) => {
             const valueDisplay = isAuction ? `<td class="${player.dollarValue >= 20 ? 'value-high' : player.dollarValue <= 5 ? 'value-low' : ''}">$${player.dollarValue || 0}</td>` : '';
             const posDisplay = player.positionString || player.positions?.join(',') || '-';
             const zTotal = parseFloat(player.zTotal) || 0;
             const zClass = zTotal > 0 ? 'z-positive' : 'z-negative';
             const injuryBadge = player.injuryStatus ? ` <span class="injury-badge injury-${player.injuryStatus.startsWith('IL') ? 'il' : 'dtd'}">${player.injuryStatus}</span>` : '';
+            const uvKey = player.name + '|' + (player.playerType || '');
+            const uvBadge = uvSet.has(uvKey) ? ' <span style="color:#7c3aed; font-size:0.7em; font-weight:bold; border:1px solid #7c3aed; padding:0 3px; border-radius:3px;">UV</span>' : '';
 
             if (showPitchers || showHitters) {
                 const catCells = activeCats.map(cat => {
@@ -1018,7 +1255,7 @@ const App = {
 
                 return `<tr>
                     <td>${index + 1}</td>
-                    <td><strong>${player.name}</strong>${injuryBadge}</td>
+                    <td><strong>${player.name}</strong>${injuryBadge}${uvBadge}</td>
                     <td>${player.team}</td>
                     <td>${posDisplay}</td>
                     ${valueDisplay}
@@ -1029,7 +1266,7 @@ const App = {
                 const typeLabel = player.type === 'pitcher' ? 'P' : 'H';
                 return `<tr>
                     <td>${index + 1}</td>
-                    <td><strong>${player.name}</strong>${injuryBadge}</td>
+                    <td><strong>${player.name}</strong>${injuryBadge}${uvBadge}</td>
                     <td>${player.team}</td>
                     <td>${typeLabel}</td>
                     <td>${posDisplay}</td>
@@ -1194,7 +1431,7 @@ const App = {
         if (confirm('Clear all data from memory?\n\nNote: CSV files will remain on disk.\nTo fully reset, delete the CSV files in the data/ folder.')) {
             // Clear memory only (files remain)
             YahooParser.clear();
-            this.currentData = { hitters: null, pitchers: null, merged: null, combined: [] };
+            this.currentData = { hitters: null, pitchers: null, merged: null, combined: [], yahooAdp: this.currentData.yahooAdp };
             this.updateDataInfo();
             this.updateYahooStats();
             this.updateRankingsTable();
@@ -2551,6 +2788,7 @@ const App = {
         // Take Top 5
         const top5 = scoredPlayers.slice(0, 5);
         
+        const uvSet = this.getUndervaluedSet();
         container.innerHTML = top5.map((p, i) => {
             const isPitcher = p.type === 'pitcher';
             let statsHtml = '';
@@ -2562,6 +2800,8 @@ const App = {
             }
 
             const valDisplay = isAuction ? `$${p.dollarValue || 0}` : `Z: ${this.formatNumber(p.zTotal, 1)}`;
+            const uvKey = p.name + '|' + (p.playerType || '');
+            const uvTag = uvSet.has(uvKey) ? '<span style="color:#7c3aed; font-weight:bold; font-size:0.7rem; border:1px solid #7c3aed; padding:0 4px; border-radius:3px;">UV</span>' : '';
 
             return `
                 <div class="recommendation-card rank-${i+1}">
@@ -2569,6 +2809,7 @@ const App = {
                         <span class="rec-rank">#${i+1}</span>
                         <span class="rec-name" style="font-size: 1rem;">${p.name}</span>
                         ${p.injuryStatus ? `<span class="injury-badge injury-${p.injuryStatus.startsWith('IL') ? 'il' : 'dtd'}">${p.injuryStatus}</span>` : ''}
+                        ${uvTag}
                         <span class="rec-pos" style="font-size: 0.75rem;">${p.positionString}</span>
                     </div>
                     <div class="rec-team">${p.team}</div>
@@ -2689,6 +2930,7 @@ const App = {
         const isAuction = this.leagueSettings.active.draftType === 'auction';
         const league = Calculator.LEAGUES.active;
 
+        const uvSet2 = this.getUndervaluedSet();
         container.innerHTML = top5.map((p, i) => {
             const isPitcher = p.type === 'pitcher';
             const categories = isPitcher ? league.pitching : league.hitting;
@@ -2700,12 +2942,14 @@ const App = {
                 return `${cat.toUpperCase()}: ${formatted}`;
             });
             const statsHtml = statsArr.join(' | ');
-            
+
             // Generate tags based on why they were recommended
             let tags = [];
             if (p.isNeedFit) tags.push('<span style="color: #ef4444; font-weight: bold; font-size: 0.7rem; border: 1px solid #ef4444; padding: 0 4px; border-radius: 3px;">NEED</span>');
             if (p.isScarcityPick) tags.push('<span style="color: #f59e0b; font-weight: bold; font-size: 0.7rem; border: 1px solid #f59e0b; padding: 0 4px; border-radius: 3px;">SCARCE</span>');
-            
+            const uvKey2 = p.name + '|' + (p.playerType || '');
+            if (uvSet2.has(uvKey2)) tags.push('<span style="color:#7c3aed; font-weight:bold; font-size:0.7rem; border:1px solid #7c3aed; padding:0 4px; border-radius:3px;">UV</span>');
+
             return `
                 <div class="recommendation-card" style="border-left-color: #0284c7;">
                     <div class="rec-header">
