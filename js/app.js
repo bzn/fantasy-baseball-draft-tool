@@ -347,9 +347,9 @@ const App = {
     saveSettings() {
         const settings = this.leagueSettings.active;
 
-        // Read hitter/pitcher split if auction
+        // Read hitter/pitcher split (used for both auction budget and snake ranking weight)
         const splitEl = document.getElementById('step4HitterPitcherSplit');
-        if (splitEl && settings.draftType === 'auction') {
+        if (splitEl) {
             settings.hitterPitcherSplit = splitEl.value;
         }
 
@@ -418,15 +418,11 @@ const App = {
 
         if (!league) return;
 
-        // Show split selector for auction leagues
+        // Show split selector for all league types (auction: budget split, snake: ranking weight)
         if (splitRow) {
-            if (settings.draftType === 'auction') {
-                splitRow.classList.remove('hidden');
-                const splitEl = document.getElementById('step4HitterPitcherSplit');
-                if (splitEl) splitEl.value = settings.hitterPitcherSplit || '60/40';
-            } else {
-                splitRow.classList.add('hidden');
-            }
+            splitRow.classList.remove('hidden');
+            const splitEl = document.getElementById('step4HitterPitcherSplit');
+            if (splitEl) splitEl.value = settings.hitterPitcherSplit || '60/40';
         }
 
         // Build category weight inputs
@@ -1109,7 +1105,11 @@ const App = {
             allPlayers = allPlayers.map(p => ({...p, dollarValue: 0}));
         }
 
-        allPlayers = Calculator.rankPlayers(allPlayers);
+        const splitStr = leagueSetting.hitterPitcherSplit || '60/40';
+        const [hPctStr, pPctStr] = splitStr.split('/');
+        const hitterWeight = parseInt(hPctStr) / 100;
+        const pitcherWeight = parseInt(pPctStr) / 100;
+        allPlayers = Calculator.rankPlayers(allPlayers, hitterWeight, pitcherWeight);
         this.currentData.combined = allPlayers;
 
         console.log('Calculation complete. Updating tables...');
@@ -1199,7 +1199,9 @@ const App = {
             return '';
         };
 
-        const valHeader = isAuction ? `<th data-sort="value">$${sortIndicator('value')}</th>` : '';
+        const valHeader = isAuction
+            ? `<th data-sort="value">$${sortIndicator('value')}</th>`
+            : `<th data-sort="dollarValue">nZ${sortIndicator('dollarValue')}</th>`;
 
         // Determine which categories to show
         let activeCats = [];
@@ -1249,7 +1251,9 @@ const App = {
         // Generate table rows
         const uvSet = this.getUndervaluedSet();
         tbody.innerHTML = players.map((player, index) => {
-            const valueDisplay = isAuction ? `<td class="${player.dollarValue >= 20 ? 'value-high' : player.dollarValue <= 5 ? 'value-low' : ''}">$${player.dollarValue || 0}</td>` : '';
+            const valueDisplay = isAuction
+                ? `<td class="${player.dollarValue >= 20 ? 'value-high' : player.dollarValue <= 5 ? 'value-low' : ''}">$${player.dollarValue || 0}</td>`
+                : `<td class="${(player.normalizedZ || 0) > 1 ? 'value-high' : (player.normalizedZ || 0) < -1 ? 'value-low' : ''}">${(player.normalizedZ || 0).toFixed(2)}</td>`;
             const posDisplay = player.positionString || player.positions?.join(',') || '-';
             const zTotal = parseFloat(player.zTotal) || 0;
             const zClass = zTotal > 0 ? 'z-positive' : 'z-negative';
@@ -1264,7 +1268,7 @@ const App = {
                 }).join('');
 
                 return `<tr>
-                    <td>${index + 1}</td>
+                    <td>${player.overallRank || index + 1}</td>
                     <td><strong>${player.name}</strong>${injuryBadge}${uvBadge}</td>
                     <td>${player.team}</td>
                     <td>${posDisplay}</td>
@@ -1275,7 +1279,7 @@ const App = {
             } else {
                 const typeLabel = player.type === 'pitcher' ? 'P' : 'H';
                 return `<tr>
-                    <td>${index + 1}</td>
+                    <td>${player.overallRank || index + 1}</td>
                     <td><strong>${player.name}</strong>${injuryBadge}${uvBadge}</td>
                     <td>${player.team}</td>
                     <td>${typeLabel}</td>
@@ -1419,7 +1423,7 @@ const App = {
     getSortValue(player, column) {
         // Handle special column mappings
         const mappings = {
-            'value': player.dollarValue || player.zTotal || 0,
+            'value': player.dollarValue || player.normalizedZ || player.zTotal || 0,
             'rank': player.overallRank || player.valueRank || 0,
             'pos': player.positionString || '',
             'k': player.k || player.so || 0,
@@ -1428,6 +1432,11 @@ const App = {
 
         if (mappings.hasOwnProperty(column)) {
             return mappings[column];
+        }
+
+        // dollarValue: fallback to normalizedZ (cross-type comparable) then zTotal for snake draft
+        if (column === 'dollarValue') {
+            return player.dollarValue || player.normalizedZ || player.zTotal || 0;
         }
 
         return player[column];
@@ -2927,6 +2936,10 @@ const App = {
             return;
         }
 
+        // Prepare scarcity cache for batch need scoring
+        this._needScoreTick = (this._needScoreTick || 0) + 1;
+        this._allPlayersForNeed = allPlayers;
+
         // Score with "Need Factor"
         const scoredPlayers = available.map(p => ({
             ...p,
@@ -3086,43 +3099,79 @@ const App = {
         player.isScarcityPick = false;
 
         // --- 1. ROSTER BALANCE (Position Need) ---
+        const caps = this.calculatePositionCaps();
         const posCounts = {
             'C': 0, '1B': 0, '2B': 0, '3B': 0, 'SS': 0, 'OF': 0,
             'SP': 0, 'RP': 0
         };
 
         myTeam.forEach(p => {
-            if (p.positions) {
-                let posList = [];
-                if (Array.isArray(p.positions)) posList = p.positions;
-                else if (typeof p.positions === 'string') posList = p.positions.split(/,|\||\//).map(s => s.trim());
-                else if (typeof p.positionString === 'string') posList = p.positionString.split(/,|\||\//).map(s => s.trim());
-
-                posList.forEach(pos => {
-                    const trimPos = pos.trim();
-                    if (posCounts[trimPos] !== undefined) posCounts[trimPos]++;
-                });
+            if (p.type === 'pitcher') {
+                if (p.isPitcherSP) posCounts.SP++;
+                if (p.isPitcherRP) posCounts.RP++;
+                return;
             }
-            if (p.isPitcherSP) posCounts.SP++;
-            if (p.isPitcherRP) posCounts.RP++;
+
+            let posList = [];
+            if (Array.isArray(p.positions)) posList = p.positions;
+            else if (typeof p.positions === 'string') posList = p.positions.split(/,|\||\//).map(s => s.trim());
+            else if (typeof p.positionString === 'string') posList = p.positionString.split(/,|\||\//).map(s => s.trim());
+
+            // Count player toward their most-needed position (lowest fill ratio)
+            const validPositions = posList.filter(pos => posCounts[pos] !== undefined);
+            if (validPositions.length > 0) {
+                let bestPos = validPositions[0];
+                let bestRatio = Infinity;
+                validPositions.forEach(pos => {
+                    const cap = caps[pos] || 1;
+                    const ratio = posCounts[pos] / cap;
+                    if (ratio < bestRatio) {
+                        bestRatio = ratio;
+                        bestPos = pos;
+                    }
+                });
+                posCounts[bestPos]++;
+            }
         });
 
-        // Dynamic position caps from roster composition
-        const caps = this.calculatePositionCaps();
-
         let posMultiplier = 1.0;
+
+        // Cache scarcity data per call batch (avoid recalculating per player)
+        if (!this._scarcityCache || this._scarcityCacheTick !== this._needScoreTick) {
+            const scoringType = (this.leagueSettings.active.scoringType || 'roto').startsWith('head') ? 'head' : 'roto';
+            this._scarcityCache = DraftManager.getScarcityData(this._allPlayersForNeed || [], scoringType);
+            this._scarcityCacheTick = this._needScoreTick;
+        }
+        const scarcity = this._scarcityCache;
 
         if (player.type === 'hitter') {
             const positions = player.positions || [];
             let isSaturated = true;
             let isHighNeed = false;
+            let hasEmptyPosition = false;
+            let hasScarcePosAvailable = false;
 
             for (const pos of positions) {
                 if (posCounts[pos] < caps[pos]) isSaturated = false;
-                if (posCounts[pos] === 0) isHighNeed = true;
+                if (posCounts[pos] === 0 && caps[pos] > 0) {
+                    isHighNeed = true;
+                    hasEmptyPosition = true;
+
+                    // Check if this position is scarce (<=5 remaining at tier 1)
+                    if (scarcity[pos] && scarcity[pos].t1 !== undefined && scarcity[pos].t1 <= 5) {
+                        hasScarcePosAvailable = true;
+                    }
+                }
             }
 
-            if (isHighNeed) {
+            if (hasEmptyPosition && hasScarcePosAvailable) {
+                posMultiplier = 1.6;
+                player.isNeedFit = true;
+                player.isScarcityPick = true;
+            } else if (hasEmptyPosition) {
+                posMultiplier = 1.4;
+                player.isNeedFit = true;
+            } else if (isHighNeed) {
                 posMultiplier = 1.2;
                 player.isNeedFit = true;
             } else if (isSaturated) {
@@ -3137,6 +3186,18 @@ const App = {
             const limit = this.leagueSettings.active.inningsLimit || 1400;
             if (stats.ip > limit * 0.95 && player.isPitcherSP) {
                 posMultiplier = 0.5;
+            }
+        }
+
+        // Scarcity detection for positions not yet on team
+        if (!player.isScarcityPick && scarcity) {
+            const posList = player.positions || [];
+            for (const pos of posList) {
+                if (scarcity[pos] && scarcity[pos].t1 !== undefined && scarcity[pos].t1 <= 3) {
+                    player.isScarcityPick = true;
+                    if (posMultiplier < 1.15) posMultiplier = 1.15;
+                    break;
+                }
             }
         }
 

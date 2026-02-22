@@ -14,6 +14,7 @@ api/yahoo-config.php
 
 # Claude Code local configuration
 .claude/
+CLAUDE.md
 
 # Development documentation (private, not for git)
 docs/

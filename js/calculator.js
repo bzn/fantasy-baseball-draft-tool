@@ -250,8 +250,8 @@ const Calculator = {
         // Calculate total "Adjusted Points" above replacement
         // We use an exponential curve to reward elite players
         // Curve factor: 1.0 = Linear, > 1.0 = Exponential (favor stars)
-        // 1.25 = steeper curve, top players more expensive, tail cheaper
-        const EXPONENT = 1.25;
+        // 1.15 = mild curve to prevent single-player budget domination
+        const EXPONENT = 1.15;
 
         let totalAdjustedPoints = 0;
         
@@ -300,8 +300,6 @@ const Calculator = {
                 dollarValue = 0;
             }
 
-            // Round to nearest integer (or keep decimal for precision if needed, but standard is int)
-            // Using Math.round can lead to slight budget overflow/underflow, but it's standard.
             return {
                 ...player,
                 dollarValue: Math.round(dollarValue)
@@ -312,7 +310,7 @@ const Calculator = {
     /**
      * Rank players within their type
      */
-    rankPlayers(players) {
+    rankPlayers(players, hitterWeight = 0.6, pitcherWeight = 0.4) {
         const hitters = players.filter(p => p.type === 'hitter')
             .sort((a, b) => b.zTotal - a.zTotal)
             .map((p, i) => ({ ...p, valueRank: i + 1 }));
@@ -321,11 +319,41 @@ const Calculator = {
             .sort((a, b) => b.zTotal - a.zTotal)
             .map((p, i) => ({ ...p, valueRank: i + 1 }));
 
-        // Also add overall rank
-        const all = [...hitters, ...pitchers]
-            .sort((a, b) => (b.dollarValue || b.zTotal) - (a.dollarValue || a.zTotal))
-            .map((p, i) => ({ ...p, overallRank: i + 1 }));
+        // Normalize Z-scores for cross-type comparison (snake draft)
+        const hasAuctionValues = hitters.some(p => p.dollarValue > 0) || pitchers.some(p => p.dollarValue > 0);
 
+        let allRanked;
+        if (hasAuctionValues) {
+            // Auction: dollar values already reflect budget split, sort directly
+            allRanked = [...hitters, ...pitchers]
+                .sort((a, b) => (b.dollarValue || 0) - (a.dollarValue || 0));
+        } else {
+            // Snake: normalize Z-scores, then apply hitter/pitcher weight ratio
+            // so a pitcher nZ=2.0 is worth less than a hitter nZ=2.0 (reflecting 60/40 value split)
+            const hitterZs = hitters.map(p => p.zTotal);
+            const pitcherZs = pitchers.map(p => p.zTotal);
+
+            const hMean = hitterZs.length > 0 ? this.mean(hitterZs) : 0;
+            const hStd = hitterZs.length > 1 ? this.stdDev(hitterZs) : 1;
+            const pMean = pitcherZs.length > 0 ? this.mean(pitcherZs) : 0;
+            const pStd = pitcherZs.length > 1 ? this.stdDev(pitcherZs) : 1;
+
+            // Weight ratio: e.g. 60/40 → hitter gets 1.2x, pitcher gets 0.8x (relative to 50/50 baseline)
+            const hScale = hitterWeight / 0.5;
+            const pScale = pitcherWeight / 0.5;
+
+            hitters.forEach(p => {
+                p.normalizedZ = (hStd > 0 ? (p.zTotal - hMean) / hStd : 0) * hScale;
+            });
+            pitchers.forEach(p => {
+                p.normalizedZ = (pStd > 0 ? (p.zTotal - pMean) / pStd : 0) * pScale;
+            });
+
+            allRanked = [...hitters, ...pitchers]
+                .sort((a, b) => b.normalizedZ - a.normalizedZ);
+        }
+
+        const all = allRanked.map((p, i) => ({ ...p, overallRank: i + 1 }));
         return all;
     },
 
@@ -344,7 +372,7 @@ const Calculator = {
         if (values.length < 2) return 0;
         const avg = this.mean(values);
         const squaredDiffs = values.map(v => Math.pow(v - avg, 2));
-        return Math.sqrt(squaredDiffs.reduce((sum, v) => sum + v, 0) / values.length);
+        return Math.sqrt(squaredDiffs.reduce((sum, v) => sum + v, 0) / (values.length - 1));
     },
 
     /**

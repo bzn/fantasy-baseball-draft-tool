@@ -360,12 +360,31 @@ const DraftManager = {
             }
         }
 
-        // 3. Fallback: Check if one name contains the other
+        // 3. Fallback: Substring match with team validation and length safety
         if (!match) {
-            match = players.find(p => {
+            const normYahooTeam = yahooTeam ? yahooTeam.toUpperCase().trim() : '';
+            const candidates = players.filter(p => {
                 const pNorm = this.normalizeNameForMatching(p.name);
-                return pNorm.includes(normYahooName) || normYahooName.includes(pNorm);
+                if (!pNorm.includes(normYahooName) && !normYahooName.includes(pNorm)) return false;
+
+                // If team matches, accept the substring match
+                const pTeam = (p.team || '').toUpperCase().trim();
+                if (normYahooTeam && pTeam === normYahooTeam) return true;
+
+                // Without team match, require minimum 5 chars to avoid "Lee" → "Leedy"
+                const shorter = Math.min(pNorm.length, normYahooName.length);
+                return shorter >= 5;
             });
+
+            // Prefer longer match (more specific) over shorter
+            if (candidates.length > 0) {
+                candidates.sort((a, b) => {
+                    const aNorm = this.normalizeNameForMatching(a.name);
+                    const bNorm = this.normalizeNameForMatching(b.name);
+                    return bNorm.length - aNorm.length;
+                });
+                match = candidates[0];
+            }
         }
 
         return match;
@@ -413,6 +432,9 @@ const DraftManager = {
             r: 0, hr: 0, rbi: 0, sb: 0,
             avg: 0, ops: 0,
             ab: 0, h: 0, bb_hit: 0,
+            // OPS components: OBP = (H+BB+HBP)/PA, SLG = TB/AB
+            obpNumerator: 0, obpDenominator: 0,
+            slgNumerator: 0, slgDenominator: 0,
             // Pitching
             w: 0, k: 0,
             era: 0, whip: 0,
@@ -431,13 +453,38 @@ const DraftManager = {
                 stats.sb += (p.sb || 0);
 
                 const ab = p.ab || (p.pa ? p.pa * 0.9 : 500);
+                const pa = p.pa || (ab / 0.9);
                 const h = p.h || (ab * (p.avg || 0.250));
 
                 stats.ab += ab;
                 stats.h += h;
 
-                const ops = p.ops || 0.750;
-                stats.ops += (ops * ab);
+                // OBP component: use player obp if available, else estimate from avg
+                if (p.obp) {
+                    stats.obpNumerator += (p.obp * pa);
+                    stats.obpDenominator += pa;
+                } else {
+                    // Estimate OBP ~ AVG + 0.030 (league-average walk contribution)
+                    const estObp = (p.avg || 0.250) + 0.030;
+                    stats.obpNumerator += (estObp * pa);
+                    stats.obpDenominator += pa;
+                }
+
+                // SLG component: use player slg if available, else derive from ops-obp or estimate
+                if (p.slg) {
+                    stats.slgNumerator += (p.slg * ab);
+                    stats.slgDenominator += ab;
+                } else if (p.ops && p.obp) {
+                    const slg = p.ops - p.obp;
+                    stats.slgNumerator += (slg * ab);
+                    stats.slgDenominator += ab;
+                } else {
+                    // Estimate SLG from OPS - estimated OBP
+                    const estObp = (p.avg || 0.250) + 0.030;
+                    const estSlg = (p.ops || 0.750) - estObp;
+                    stats.slgNumerator += (estSlg * ab);
+                    stats.slgDenominator += ab;
+                }
 
             } else {
                 stats.pitchers++;
@@ -461,7 +508,13 @@ const DraftManager = {
 
         if (stats.ab > 0) {
             stats.avg = stats.h / stats.ab;
-            stats.ops = stats.ops / stats.ab;
+        }
+
+        // OPS = OBP + SLG (weighted by PA and AB respectively)
+        if (stats.obpDenominator > 0 && stats.slgDenominator > 0) {
+            const teamObp = stats.obpNumerator / stats.obpDenominator;
+            const teamSlg = stats.slgNumerator / stats.slgDenominator;
+            stats.ops = teamObp + teamSlg;
         }
 
         if (stats.ip > 0) {
