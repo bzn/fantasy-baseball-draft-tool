@@ -26,7 +26,7 @@ const App = {
             teams: 12,
             budget: 260,
             hitterPitcherSplit: '60/40',
-            inningsLimit: 1350,
+            inningsLimit: 1400,
             rosterHitters: 12,
             rosterPitchers: 8,
             rosterComposition: ['C', '1B', '2B', '3B', 'SS', 'CI', 'MI', 'LF', 'CF', 'RF', 'OF', 'Util', 'SP', 'SP', 'SP', 'RP', 'RP', 'P', 'P', 'P', 'BN', 'BN', 'BN', 'BN', 'BN', 'BN', 'IL', 'IL', 'IL', 'NA'],
@@ -72,12 +72,6 @@ const App = {
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', (e) => this.switchTab(e.target.dataset.tab));
         });
-
-        // Parser events (Projections tab removed, but keep bindings for potential future use)
-        document.getElementById('parseBtn')?.addEventListener('click', () => this.parseData());
-        document.getElementById('clearBtn')?.addEventListener('click', () => this.clearParser());
-        document.getElementById('saveDataBtn')?.addEventListener('click', () => this.saveData());
-        document.getElementById('exportCsvBtn')?.addEventListener('click', () => this.exportCSV());
 
         // Rankings table events
         document.getElementById('positionFilter')?.addEventListener('change', () => this.updateRankingsTable());
@@ -736,146 +730,6 @@ const App = {
 
         html += '</div>';
         container.innerHTML = html;
-    },
-
-    /**
-     * Parse the raw data input
-     */
-    parseData() {
-        const rawData = document.getElementById('rawData').value;
-        const dataType = document.getElementById('dataType').value;
-
-        if (!rawData.trim()) {
-            alert('Please paste data from FanGraphs first.');
-            return;
-        }
-
-        const result = Parser.parse(rawData, dataType);
-
-        if (result.success) {
-            this.displayParseResult(result);
-        } else {
-            alert('Failed to parse data. Please check the format.');
-        }
-    },
-
-    /**
-     * Display parse results in table
-     */
-    displayParseResult(result) {
-        const resultSection = document.getElementById('parseResult');
-        const statsBar = document.getElementById('parseStats');
-        const table = document.getElementById('parsedTable');
-
-        // Determine type display
-        const typeLabel = result.dataType === 'hitter' ? 'Hitters' : 'Pitchers';
-        const autoDetectedBadge = result.autoDetected
-            ? ' <span style="background: #16a34a; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">Auto-detected</span>'
-            : '';
-
-        // Update stats
-        statsBar.innerHTML = `
-            <div class="stat-item">
-                <span class="stat-label">Players Found</span>
-                <span class="stat-value">${result.count}</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">Type</span>
-                <span class="stat-value">${typeLabel}${autoDetectedBadge}</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">Errors</span>
-                <span class="stat-value">${result.errors.length}</span>
-            </div>
-        `;
-
-        // Build table
-        const columns = result.dataType === 'hitter'
-            ? ['rank', 'name', 'team', 'hr', 'r', 'rbi', 'sb', 'avg', 'obp', 'slg', 'ops', 'war']
-            : ['rank', 'name', 'team', 'w', 'sv', 'gs', 'ip', 'k', 'era', 'whip', 'qs', 'war'];
-
-        // Header
-        table.querySelector('thead').innerHTML = `
-            <tr>
-                ${columns.map(col => `<th>${col.toUpperCase()}</th>`).join('')}
-            </tr>
-        `;
-
-        // Body - show first 50 players
-        const displayPlayers = result.players.slice(0, 50);
-        table.querySelector('tbody').innerHTML = displayPlayers.map(player => `
-            <tr>
-                ${columns.map(col => {
-                    let value = player[col];
-                    if (typeof value === 'number') {
-                        if (col === 'avg' || col === 'obp' || col === 'slg' || col === 'ops') {
-                            value = value.toFixed(3);
-                        } else if (col === 'era' || col === 'whip') {
-                            value = value.toFixed(2);
-                        }
-                    }
-                    return `<td>${value !== undefined ? value : '-'}</td>`;
-                }).join('')}
-            </tr>
-        `).join('');
-
-        // Store temporarily
-        this.tempParseResult = result;
-
-        // Show result section
-        resultSection.classList.remove('hidden');
-    },
-
-    /**
-     * Clear parser input
-     */
-    clearParser() {
-        document.getElementById('rawData').value = '';
-        document.getElementById('parseResult').classList.add('hidden');
-        this.tempParseResult = null;
-    },
-
-    /**
-     * Save parsed data to CSV file only
-     */
-    async saveData() {
-        if (!this.tempParseResult) {
-            alert('No parsed data to save.');
-            return;
-        }
-
-        // Save to CSV file
-        const fileResult = await Parser.saveToFile(this.tempParseResult);
-
-        // Update local data
-        if (this.tempParseResult.dataType === 'hitter') {
-            this.currentData.hitters = this.tempParseResult;
-        } else {
-            this.currentData.pitchers = this.tempParseResult;
-        }
-
-        this.updateDataInfo();
-
-        if (fileResult.success) {
-            alert(`Saved ${this.tempParseResult.count} ${this.tempParseResult.dataType}s successfully!\n\nFile saved: data/${fileResult.file}`);
-        } else {
-            alert(`File save failed: ${fileResult.error}`);
-        }
-    },
-
-    /**
-     * Export data to CSV
-     */
-    exportCSV() {
-        if (!this.tempParseResult) {
-            alert('No parsed data to export.');
-            return;
-        }
-
-        const csv = Parser.toCSV(this.tempParseResult);
-        const filename = `fantasy_${this.tempParseResult.dataType}s_${new Date().toISOString().split('T')[0]}.csv`;
-
-        this.downloadFile(csv, filename, 'text/csv');
     },
 
     /**
@@ -2623,14 +2477,14 @@ const App = {
         if (marketSection) marketSection.classList.toggle('hidden', !isAuction);
 
         const stats = DraftManager.getMyTeamStats();
-        const limit = settings.inningsLimit || 1350;
+        const limit = settings.inningsLimit || 1400;
         const ipPct = Math.min(100, (stats.ip / limit) * 100);
         const ipColor = stats.ip > limit ? '#ef4444' : stats.ip > limit * 0.9 ? '#f59e0b' : '#3b82f6';
 
         // Update Team Name Input if not focused
         const nameInput = document.getElementById('draftTeamName');
         if (nameInput && document.activeElement !== nameInput) {
-             nameInput.value = DraftManager.state.myTeamName || 'bluezhin';
+             nameInput.value = DraftManager.state.myTeamName || '';
         }
 
         // Update Teams count input if not focused

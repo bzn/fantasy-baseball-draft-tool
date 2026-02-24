@@ -7,7 +7,7 @@
 const DraftManager = {
     // Single state for active league
     state: {
-        myTeamName: 'bluezhin',
+        myTeamName: '',
         takenPlayers: new Set(), // Set of player keys (name|team|type)
         myTeam: [], // Array of player objects
         draftLog: [], // History of picks
@@ -42,7 +42,7 @@ const DraftManager = {
                     ? oldData.h2h12
                     : (oldData.roto5x5 || {});
                 this.state = {
-                    myTeamName: source.myTeamName || 'bluezhin',
+                    myTeamName: source.myTeamName || '',
                     takenPlayers: new Set(source.takenPlayers || []),
                     myTeam: source.myTeam || [],
                     draftLog: source.draftLog || [],
@@ -54,7 +54,7 @@ const DraftManager = {
                 if (v1Stored) {
                     const v1Data = JSON.parse(v1Stored);
                     this.state = {
-                        myTeamName: v1Data.myTeamName || 'bluezhin',
+                        myTeamName: v1Data.myTeamName || '',
                         takenPlayers: new Set(v1Data.takenPlayers || []),
                         myTeam: v1Data.myTeam || [],
                         draftLog: v1Data.draftLog || [],
@@ -116,7 +116,7 @@ const DraftManager = {
         this.state.myTeamName = savedTeamName; // Preserve team name
 
         // 0. Attempt to auto-detect team name (only if current name is default/empty)
-        const isDefaultName = !savedTeamName || savedTeamName === 'bluezhin';
+        const isDefaultName = !savedTeamName;
         if (isDefaultName) {
             const detectedName = this.detectTeamName(lines);
             if (detectedName) {
@@ -241,19 +241,6 @@ const DraftManager = {
             }
         }
 
-        // Strategy 2: Known aliases
-        const knownAliases = ['bluezhin', 'Blues Explosion', 'BlueZhin'];
-        const pickRegex = /^(\d+)\s+(.+?)([A-Z]{2,3}|ATH|WAS|CWS|AZ)-\s+([A-Z,]+)\s+(.+?)\s+\d+\s+\$(\d+)/;
-
-        for (const line of lines) {
-            const match = line.match(pickRegex);
-            if (match) {
-                const manager = match[5].trim();
-                if (knownAliases.some(alias => manager.toLowerCase() === alias.toLowerCase())) {
-                    return manager;
-                }
-            }
-        }
         return null;
     },
 

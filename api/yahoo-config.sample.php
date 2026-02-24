@@ -5,7 +5,7 @@
  * Instructions:
  * 1. Go to https://developer.yahoo.com/apps/ and create a new app
  * 2. Set Application Type to "Installed Application"
- * 3. Set Redirect URI to: http://localhost/fantasy-baseball-draft/api/auth.php?action=callback
+ * 3. Set Redirect URI to: https://localhost/fantasy-baseball-draft-tool/api/callback.php
  * 4. Select "Fantasy Sports" API permission (Read)
  * 5. Copy your Client ID and Client Secret below
  * 6. Save this file as yahoo-config.php
@@ -14,7 +14,7 @@
 return [
     'client_id'     => 'YOUR_YAHOO_CLIENT_ID',
     'client_secret' => 'YOUR_YAHOO_CLIENT_SECRET',
-    'redirect_uri'  => 'https://localhost/fantasy-baseball-draft/api/callback.php',
+    'redirect_uri'  => 'https://localhost/fantasy-baseball-draft-tool/api/callback.php',
 
     // Yahoo OAuth 2.0 endpoints
     'auth_url'      => 'https://api.login.yahoo.com/oauth2/request_auth',
