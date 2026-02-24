@@ -40,7 +40,8 @@ Supports **Roto 5x5** (snake) and **H2H 6x6** (auction) leagues. Categories are 
 
 - Paste Yahoo Live Draft → **Draft Results** tab (Ctrl+A → Ctrl+C → Ctrl+V)
 - Auto-detect your team, track all picks
-- Smart recommendations based on team needs and category balance
+- **My Roster panel** — greedy position assignment shows filled/empty slots
+- Smart recommendations with NEED / SCARCE / UV tags
 - Positional scarcity heatmap
 - Market inflation tracker (auction)
 
