@@ -701,3 +701,55 @@ tr.drafted-player {
     background-color: #cbd5e1;
     z-index: 1;
 }
+
+/* My Roster Panel */
+.roster-section-label {
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 8px 0 4px;
+    padding-bottom: 2px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.roster-slot {
+    display: flex;
+    align-items: center;
+    padding: 3px 6px;
+    border-radius: 4px;
+    margin-bottom: 2px;
+    font-size: 0.82rem;
+    line-height: 1.4;
+}
+
+.roster-pos {
+    display: inline-block;
+    width: 32px;
+    font-weight: 600;
+    color: var(--secondary-color);
+    flex-shrink: 0;
+}
+
+.roster-name {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.roster-slot-filled {
+    border-left: 3px solid var(--success-color);
+    background: #f0fdf4;
+}
+
+.roster-slot-empty {
+    border-left: 3px solid transparent;
+    border-bottom: 1px dashed #d1d5db;
+    background: #fafafa;
+}
+
+.roster-empty-name {
+    color: #9ca3af;
+}

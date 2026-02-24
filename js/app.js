@@ -2757,6 +2757,7 @@ const App = {
         }
 
         this.updateDraftRecommendations();
+        this.renderMyRoster();
 
         // Scarcity Heatmap (both modes)
         const scarcityContainer = document.getElementById('scarcityHeatmap');
@@ -2767,6 +2768,126 @@ const App = {
             scarcityContainer.innerHTML = this.renderScarcityHeatmap(scarcity, isAuction, defaultTiers);
         }
     },
+    /**
+     * Render My Roster panel - greedy slot assignment
+     */
+    renderMyRoster() {
+        const container = document.getElementById('myRosterDisplay');
+        if (!container) return;
+
+        const settings = this.leagueSettings.active;
+        const isAuction = settings.draftType === 'auction';
+        const composition = settings.rosterComposition || [];
+        const myTeam = (DraftManager.state.myTeam || []).slice();
+
+        // Filter out IL/NA slots
+        const slots = composition.filter(pos => pos !== 'IL' && pos !== 'NA');
+
+        // Separate slots into categories
+        const hitterSlotPositions = ['C', '1B', '2B', '3B', 'SS', 'CI', 'MI', 'LF', 'CF', 'RF', 'OF', 'Util', 'DH'];
+        const pitcherSlotPositions = ['SP', 'RP', 'P'];
+
+        const hitterSlots = [];
+        const pitcherSlots = [];
+        const benchSlots = [];
+        slots.forEach(s => {
+            if (s === 'BN') benchSlots.push(s);
+            else if (hitterSlotPositions.includes(s)) hitterSlots.push(s);
+            else if (pitcherSlotPositions.includes(s)) pitcherSlots.push(s);
+            else hitterSlots.push(s); // fallback
+        });
+
+        // Position eligibility check
+        const canFillSlot = (player, slot) => {
+            let posList = [];
+            if (Array.isArray(player.positions)) posList = player.positions;
+            else if (typeof player.positions === 'string') posList = player.positions.split(/,|\||\//).map(s => s.trim());
+            else if (typeof player.positionString === 'string') posList = player.positionString.split(/,|\||\//).map(s => s.trim());
+
+            const isHitter = player.type === 'hitter';
+            const isPitcher = player.type === 'pitcher';
+
+            switch (slot) {
+                case 'C': case '1B': case '2B': case '3B': case 'SS':
+                case 'LF': case 'CF': case 'RF':
+                    return posList.includes(slot);
+                case 'CI': return posList.includes('1B') || posList.includes('3B');
+                case 'MI': return posList.includes('2B') || posList.includes('SS');
+                case 'OF': return posList.includes('LF') || posList.includes('CF') || posList.includes('RF') || posList.includes('OF');
+                case 'Util': case 'DH': return isHitter;
+                case 'SP': return posList.includes('SP');
+                case 'RP': return posList.includes('RP');
+                case 'P': return isPitcher;
+                case 'BN': return true;
+                default: return posList.includes(slot);
+            }
+        };
+
+        // Greedy assignment: process most restrictive slots first
+        const slotPriority = ['C', 'SS', '2B', '3B', '1B', 'LF', 'CF', 'RF', 'CI', 'MI', 'OF', 'SP', 'RP', 'Util', 'DH', 'P', 'BN'];
+        const allSlots = [...hitterSlots, ...pitcherSlots, ...benchSlots];
+        const assignments = new Array(allSlots.length).fill(null);
+        const assigned = new Set();
+
+        // Sort slot indices by priority
+        const slotIndices = allSlots.map((_, i) => i);
+        slotIndices.sort((a, b) => {
+            const pa = slotPriority.indexOf(allSlots[a]);
+            const pb = slotPriority.indexOf(allSlots[b]);
+            return (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb);
+        });
+
+        for (const idx of slotIndices) {
+            const slot = allSlots[idx];
+            for (const player of myTeam) {
+                const key = `${player.name}|${player.team}|${player.type}`;
+                if (assigned.has(key)) continue;
+                if (canFillSlot(player, slot)) {
+                    assignments[idx] = player;
+                    assigned.add(key);
+                    break;
+                }
+            }
+        }
+
+        // Render
+        const renderSlot = (slot, player) => {
+            if (player) {
+                const price = isAuction && player.cost ? ` <span style="color:#6b7280;">$${player.cost}</span>` : '';
+                return `<div class="roster-slot roster-slot-filled"><span class="roster-pos">${slot}</span><span class="roster-name">${player.name}${price}</span></div>`;
+            }
+            return `<div class="roster-slot roster-slot-empty"><span class="roster-pos">${slot}</span><span class="roster-name roster-empty-name">—</span></div>`;
+        };
+
+        let html = '<h4 style="margin-bottom:8px; font-size:0.95rem;">My Roster</h4>';
+
+        // Hitters section
+        if (hitterSlots.length > 0) {
+            html += '<div class="roster-section-label">Hitters</div>';
+            for (let i = 0; i < hitterSlots.length; i++) {
+                html += renderSlot(hitterSlots[i], assignments[i]);
+            }
+        }
+
+        // Pitchers section
+        if (pitcherSlots.length > 0) {
+            html += '<div class="roster-section-label">Pitchers</div>';
+            for (let i = 0; i < pitcherSlots.length; i++) {
+                html += renderSlot(pitcherSlots[i], assignments[hitterSlots.length + i]);
+            }
+        }
+
+        // Bench section
+        if (benchSlots.length > 0) {
+            html += '<div class="roster-section-label">Bench</div>';
+            for (let i = 0; i < benchSlots.length; i++) {
+                html += renderSlot('BN', assignments[hitterSlots.length + pitcherSlots.length + i]);
+            }
+        }
+
+        container.innerHTML = html;
+    },
+
     /**
      * Update List A: Best Value Recommendations
      */
