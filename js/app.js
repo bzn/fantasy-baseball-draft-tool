@@ -587,7 +587,7 @@ const App = {
                     standardList.push({
                         ...entry,
                         adp: p.average_pick,
-                        yahooRank: index + 1,
+                        yahooRank: p.yahoo_rank || (index + 1),
                     });
                 }
 
@@ -597,6 +597,7 @@ const App = {
                         ...entry,
                         avgCost: p.average_cost,
                         projCost: p.average_cost,
+                        yahooRank: p.yahoo_rank || (index + 1),
                     });
                 }
             });
@@ -697,7 +698,9 @@ const App = {
     },
 
     /**
-     * Get the set of undervalued top 30 player keys (name + playerType) for badge display
+     * Get the set of undervalued player keys (name + playerType) for badge display
+     * Salary: from our top 100, players where our$ > Yahoo$ (top 20)
+     * Standard: from our top 100, players where ourRank < yahooRank (top 20)
      */
     getUndervaluedSet() {
         const yahooAdp = this.currentData.yahooAdp;
@@ -708,23 +711,46 @@ const App = {
         const yahooList = isAuction ? yahooAdp.salary : yahooAdp.standard;
         if (!yahooList) return new Set();
 
-        const comparisons = [];
+        // Keep only the best Yahoo match per player to avoid fuzzy match false positives
+        const bestMatch = new Map();
         for (const yEntry of yahooList) {
             const ourPlayer = this.matchPlayer(yEntry, ourPlayers);
             if (!ourPlayer) continue;
+            const ourRank = ourPlayer.overallRank || 9999;
+            if (ourRank > 100) continue;
+            const playerKey = ourPlayer.name + '|' + (ourPlayer.playerType || '');
+            const prev = bestMatch.get(playerKey);
             if (isAuction) {
-                const avgGap = (ourPlayer.dollarValue || 0) - (yEntry.avgCost || 0);
-                comparisons.push({ player: ourPlayer, avgGap });
+                const yahooVal = yEntry.avgCost || 0;
+                if (!prev || yahooVal > (prev.yEntry.avgCost || 0)) {
+                    bestMatch.set(playerKey, { ourPlayer, yEntry });
+                }
             } else {
-                // Use Yahoo Rank (not Avg ADP which is often 9999)
-                const gap = (yEntry.yahooRank || 9999) - (ourPlayer.overallRank || 9999);
-                comparisons.push({ player: ourPlayer, avgGap: gap });
+                const yahooRank = yEntry.yahooRank || 9999;
+                if (!prev || yahooRank < (prev.yEntry.yahooRank || 9999)) {
+                    bestMatch.set(playerKey, { ourPlayer, yEntry });
+                }
             }
         }
-        comparisons.sort((a, b) => b.avgGap - a.avgGap);
-        const top50 = comparisons.slice(0, 50);
+
+        const comparisons = [];
+        for (const { ourPlayer, yEntry } of bestMatch.values()) {
+            if (isAuction) {
+                const ourVal = ourPlayer.dollarValue || 0;
+                const yahooVal = yEntry.avgCost || 0;
+                if (ourVal <= yahooVal) continue;
+                comparisons.push({ player: ourPlayer, gap: ourVal - yahooVal });
+            } else {
+                const ourRank = ourPlayer.overallRank || 9999;
+                const yahooRank = yEntry.yahooRank || 9999;
+                if (ourRank >= yahooRank) continue;
+                comparisons.push({ player: ourPlayer, gap: yahooRank - ourRank });
+            }
+        }
+        comparisons.sort((a, b) => b.gap - a.gap);
+        const top20 = comparisons.slice(0, 20);
         const result = new Set();
-        for (const item of top50) {
+        for (const item of top20) {
             result.add(item.player.name + '|' + (item.player.playerType || ''));
         }
         return result;
@@ -753,110 +779,87 @@ const App = {
             return;
         }
 
-        // Build comparison list
-        const comparisons = [];
+        // Build comparison list: from our Rank top 100 only
+        // Use a Map to keep only the best Yahoo match per player (lowest yahooRank / highest avgCost)
+        const bestMatch = new Map(); // key: playerKey → best yEntry
         for (const yEntry of yahooList) {
             const ourPlayer = this.matchPlayer(yEntry, ourPlayers);
             if (!ourPlayer) continue;
-            // Only show players we rank in top 200
             const ourRank = ourPlayer.overallRank || 9999;
-            if (ourRank > 200) continue;
+            if (ourRank > 100) continue;
+            const playerKey = ourPlayer.name + '|' + (ourPlayer.playerType || '');
+            const prev = bestMatch.get(playerKey);
+            if (isAuction) {
+                const yahooAvg = yEntry.avgCost || 0;
+                // Keep the entry with highest avgCost (most representative Yahoo price)
+                if (!prev || yahooAvg > (prev.yEntry.avgCost || 0)) {
+                    bestMatch.set(playerKey, { ourPlayer, yEntry });
+                }
+            } else {
+                const yahooRank = yEntry.yahooRank || 9999;
+                // Keep the entry with lowest yahooRank (best Yahoo rank)
+                if (!prev || yahooRank < (prev.yEntry.yahooRank || 9999)) {
+                    bestMatch.set(playerKey, { ourPlayer, yEntry });
+                }
+            }
+        }
+
+        const comparisons = [];
+        for (const { ourPlayer, yEntry } of bestMatch.values()) {
+            const ourRank = ourPlayer.overallRank || 9999;
             const isTaken = typeof DraftManager !== 'undefined' && DraftManager.isPlayerTaken(ourPlayer);
 
             if (isAuction) {
-                // Salary: Gap = Our$ - Yahoo$. Positive = Yahoo undervalues.
                 const ourVal = ourPlayer.dollarValue || 0;
-                const yahooProj = yEntry.projCost || 0;
                 const yahooAvg = yEntry.avgCost || 0;
-                const gap = ourVal - yahooProj;
-                const avgGap = ourVal - yahooAvg;
+                if (ourVal <= yahooAvg) continue;
+                const gap = ourVal - yahooAvg;
                 comparisons.push({
                     player: ourPlayer, isTaken,
                     ourDisplay: '$' + Math.round(ourVal),
-                    yahooDisplay: '$' + yahooProj,
-                    yahooAvgDisplay: '$' + yahooAvg.toFixed(1),
+                    yahooDisplay: '$' + yahooAvg.toFixed(1),
                     gap: gap,
-                    gapDisplay: (gap >= 0 ? '+$' : '-$') + Math.abs(gap).toFixed(0),
-                    avgGap: avgGap,
-                    avgGapDisplay: (avgGap >= 0 ? '+$' : '-$') + Math.abs(avgGap).toFixed(1)
+                    gapDisplay: '+$' + gap.toFixed(1)
                 });
             } else {
-                // Standard: Gap = YahooRank - OurRank. Positive = Yahoo undervalues.
-                const ourRank = ourPlayer.overallRank || 9999;
                 const yahooRank = yEntry.yahooRank || 9999;
+                if (ourRank >= yahooRank) continue;
                 const gap = yahooRank - ourRank;
                 comparisons.push({
                     player: ourPlayer, isTaken,
                     ourDisplay: '#' + ourRank,
                     yahooDisplay: '#' + yahooRank,
                     gap: gap,
-                    gapDisplay: (gap >= 0 ? '+' : '') + gap,
-                    // Use Yahoo Rank gap as primary sort metric (Avg ADP is mostly 9999, unusable)
-                    avgGap: gap,
-                    avgGapDisplay: (gap >= 0 ? '+' : '') + gap,
+                    gapDisplay: '+' + gap
                 });
             }
         }
 
-        // Sort by avgGap descending (most undervalued by player average)
-        comparisons.sort((a, b) => b.avgGap - a.avgGap);
-        const top50 = comparisons.slice(0, 50);
+        // Sort by gap descending (most undervalued first)
+        comparisons.sort((a, b) => b.gap - a.gap);
+        const top20 = comparisons.slice(0, 20);
 
-        if (top50.length === 0) {
+        if (top20.length === 0) {
             container.innerHTML = '<p style="color:#64748b;">No matchable players found.</p>';
             return;
         }
 
         const modeLabel = isAuction ? 'Salary Cap' : 'Standard';
-        const ourLabel = isAuction ? 'Our $' : 'Our Rank';
-        const yahooLabel = isAuction ? 'Avg$' : 'Yahoo Rank';
 
         let html = `
             <div style="margin-bottom: 12px; font-size: 0.9em; color: #64748b;">
-                Mode: <strong>${modeLabel}</strong> | Top 50 most undervalued (sorted by Gap)
+                Mode: <strong>${modeLabel}</strong> | Top 20 undervalued from our Rank top 100 (sorted by Gap)
             </div>
             <div style="display: grid; gap: 8px;">
         `;
 
-        top50.forEach((item, i) => {
+        top20.forEach((item, i) => {
             const p = item.player;
             const pos = p.positionString || p.positions || '';
-            const gapColor = item.gap > 0 ? '#16a34a' : '#dc2626';
             const takenStyle = item.isTaken ? 'opacity: 0.5; text-decoration: line-through;' : '';
             const takenBadge = item.isTaken ? '<span style="color:#dc2626; font-size:0.7em; font-weight:bold; margin-left:6px; text-decoration:none; display:inline-block;">(TAKEN)</span>' : '';
 
-            if (isAuction) {
-                const avgGapColor = item.avgGap > 0 ? '#16a34a' : '#dc2626';
-                html += `
-                <div style="display: grid; grid-template-columns: 32px 1fr repeat(5, auto); align-items: center; gap: 10px; padding: 10px 14px; background: ${item.isTaken ? '#f3f4f6' : '#f8fafc'}; border-radius: 8px; border: 1px solid #e2e8f0;">
-                    <span style="font-size: 1.2em; font-weight: 700; color: #94a3b8;">${i + 1}</span>
-                    <div style="min-width: 140px;">
-                        <div style="${takenStyle}"><span style="font-weight: 600; font-size: 0.95em;">${p.name}</span>${takenBadge}</div>
-                        <div style="font-size: 0.8em; color: #64748b;">${p.team || ''} - ${pos}</div>
-                    </div>
-                    <div style="text-align: center; min-width: 55px;">
-                        <div style="font-size: 0.7em; color: #94a3b8;">Our $</div>
-                        <div style="font-weight: 600; font-size: 0.95em;">${item.ourDisplay}</div>
-                    </div>
-                    <div style="text-align: center; min-width: 55px;">
-                        <div style="font-size: 0.7em; color: #94a3b8;">Yahoo$</div>
-                        <div style="font-weight: 600; font-size: 0.95em;">${item.yahooDisplay}</div>
-                    </div>
-                    <div style="text-align: center; min-width: 50px;">
-                        <div style="font-size: 0.7em; color: #94a3b8;">Gap</div>
-                        <div style="font-weight: 700; color: ${gapColor}; font-size: 1em;">${item.gapDisplay}</div>
-                    </div>
-                    <div style="text-align: center; min-width: 55px;">
-                        <div style="font-size: 0.7em; color: #94a3b8;">Avg$</div>
-                        <div style="font-weight: 600; font-size: 0.95em;">${item.yahooAvgDisplay}</div>
-                    </div>
-                    <div style="text-align: center; min-width: 50px;">
-                        <div style="font-size: 0.7em; color: #94a3b8;">Gap</div>
-                        <div style="font-weight: 700; color: ${avgGapColor}; font-size: 1em;">${item.avgGapDisplay}</div>
-                    </div>
-                </div>`;
-            } else {
-                html += `
+            html += `
                 <div style="display: grid; grid-template-columns: 32px 1fr repeat(3, auto); align-items: center; gap: 10px; padding: 10px 14px; background: ${item.isTaken ? '#f3f4f6' : '#f8fafc'}; border-radius: 8px; border: 1px solid #e2e8f0;">
                     <span style="font-size: 1.2em; font-weight: 700; color: #94a3b8;">${i + 1}</span>
                     <div style="min-width: 140px;">
@@ -864,19 +867,18 @@ const App = {
                         <div style="font-size: 0.8em; color: #64748b;">${p.team || ''} - ${pos}</div>
                     </div>
                     <div style="text-align: center; min-width: 55px;">
-                        <div style="font-size: 0.7em; color: #94a3b8;">Our Rank</div>
+                        <div style="font-size: 0.7em; color: #94a3b8;">${isAuction ? 'Our $' : 'Our Rank'}</div>
                         <div style="font-weight: 600; font-size: 0.95em;">${item.ourDisplay}</div>
                     </div>
                     <div style="text-align: center; min-width: 55px;">
-                        <div style="font-size: 0.7em; color: #94a3b8;">Yahoo Rank</div>
+                        <div style="font-size: 0.7em; color: #94a3b8;">${isAuction ? 'Yahoo $' : 'Yahoo Rank'}</div>
                         <div style="font-weight: 600; font-size: 0.95em;">${item.yahooDisplay}</div>
                     </div>
                     <div style="text-align: center; min-width: 50px;">
                         <div style="font-size: 0.7em; color: #94a3b8;">Gap</div>
-                        <div style="font-weight: 700; color: ${gapColor}; font-size: 1em;">${item.gapDisplay}</div>
+                        <div style="font-weight: 700; color: #16a34a; font-size: 1em;">${item.gapDisplay}</div>
                     </div>
                 </div>`;
-            }
         });
 
         html += '</div>';

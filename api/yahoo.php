@@ -615,6 +615,7 @@ function handleDraftAnalysisADP($apiBase, $tokens) {
             'player_key' => $player['player_key'],
             'positions' => $player['positions'],
             'position_type' => $player['position_type'],
+            'yahoo_rank' => $start + $i + 1,
             'average_pick' => $draftAnalysis['average_pick'] ?? null,
             'average_round' => $draftAnalysis['average_round'] ?? null,
             'average_cost' => $draftAnalysis['average_cost'] ?? null,
