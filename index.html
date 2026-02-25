@@ -92,11 +92,30 @@
                     </div>
                 </div>
 
+                <!-- Step 2b: Load Draft Analysis (ADP) -->
+                <div class="setup-step" style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                    <h3 style="margin: 0 0 12px 0;">Step 2b: Load Draft Analysis (ADP)</h3>
+                    <p class="help-text" style="margin-bottom: 12px;">
+                        Fetch ADP and average auction cost from Yahoo's draft analysis. Used in the <strong>Undervalued</strong> tab.
+                    </p>
+                    <div id="yahooAdpSavedStatus" style="font-size: 0.9em; margin-bottom: 8px;"></div>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <button id="yahooLoadAdpBtn" class="btn primary" disabled>Load Draft Analysis (ADP)</button>
+                        <span id="yahooAdpLoadStatus" style="font-size: 0.9em;"></span>
+                    </div>
+                    <div id="yahooAdpLoadProgress" class="hidden" style="margin-top: 12px;">
+                        <div style="background: #e2e8f0; border-radius: 4px; height: 8px; overflow: hidden;">
+                            <div id="yahooAdpProgressBar" style="background: #2563eb; height: 100%; width: 0%; transition: width 0.3s;"></div>
+                        </div>
+                        <p id="yahooAdpProgressText" style="font-size: 0.85em; color: #64748b; margin-top: 4px;"></p>
+                    </div>
+                </div>
+
                 <!-- Step 3: Import Projections -->
                 <div class="setup-step" style="margin-bottom: 24px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
                     <h3 style="margin: 0 0 12px 0;">Step 3: Import FanGraphs Projections</h3>
                     <p class="help-text" style="margin-bottom: 12px;">
-                        Auto-fetch projections from FanGraphs, or manually import via the <strong>Projections</strong> tab.
+                        Auto-fetch projections from FanGraphs, or use Manual Import below if blocked.
                     </p>
 
                     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
@@ -119,6 +138,29 @@
                         <p><strong>Pitchers:</strong> <span id="setupPitcherCount">Not loaded</span></p>
                         <p><strong>Merged:</strong> <span id="setupMergedCount">Not merged</span></p>
                     </div>
+
+                    <!-- Manual CSV Paste Fallback -->
+                    <details id="manualProjectionImport" style="margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
+                        <summary style="cursor: pointer; font-size: 0.9em; color: #64748b; user-select: none;">
+                            Manual Import (if auto-fetch is blocked)
+                        </summary>
+                        <div style="margin-top: 12px;">
+                            <p class="help-text" style="margin-bottom: 8px; font-size: 0.85em;">
+                                Go to <a href="https://www.fangraphs.com/projections?type=thebatx&pos=all&stats=bat" target="_blank">FanGraphs Projections</a>,
+                                select all table rows (Ctrl+A), copy (Ctrl+C), and paste below. Import hitters and pitchers separately.
+                            </p>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                <select id="manualImportType" style="padding: 4px 8px; font-size: 0.9em;">
+                                    <option value="auto">Auto-detect</option>
+                                    <option value="hitter">Hitters</option>
+                                    <option value="pitcher">Pitchers</option>
+                                </select>
+                                <button id="manualImportBtn" class="btn secondary" style="font-size: 0.85em;">Parse & Import</button>
+                                <span id="manualImportStatus" style="font-size: 0.85em;"></span>
+                            </div>
+                            <textarea id="manualImportData" rows="6" style="width: 100%; font-family: monospace; font-size: 0.8em; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; resize: vertical;" placeholder="Paste FanGraphs table data here (tab-separated)..."></textarea>
+                        </div>
+                    </details>
                 </div>
 
                 <!-- Step 4: Fine-tune & Start -->

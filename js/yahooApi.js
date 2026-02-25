@@ -267,12 +267,18 @@ const YahooApi = {
      * Open Yahoo login in popup window
      */
     login() {
+        let url = 'api/auth.php?action=login';
+        // Attach credentials if provided via UI (no server config file)
+        if (this._apiConfig && this._apiConfig.client_id) {
+            url += '&client_id=' + encodeURIComponent(this._apiConfig.client_id)
+                 + '&client_secret=' + encodeURIComponent(this._apiConfig.client_secret);
+        }
         const width = 600;
         const height = 700;
         const left = (screen.width - width) / 2;
         const top = (screen.height - height) / 2;
         window.open(
-            'api/auth.php?action=login',
+            url,
             'YahooLogin',
             `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
         );
@@ -720,6 +726,75 @@ const YahooApi = {
     },
 
     /**
+     * Fetch draft analysis (ADP) data from Yahoo API with pagination.
+     * Returns array of player objects with average_pick, average_cost, etc.
+     */
+    async fetchDraftAnalysis(leagueKey, statusCallback) {
+        const allPlayers = [];
+        const seenKeys = new Set();
+        let start = 0;
+        const count = 25;
+        let hasMore = true;
+        let totalFetched = 0;
+
+        while (hasMore) {
+            if (statusCallback) {
+                statusCallback(`Loading draft analysis (${start + 1}-${start + count})... ${allPlayers.length} players so far`);
+            }
+
+            try {
+                const url = `api/yahoo.php?action=draftanalysis_adp&league_key=${encodeURIComponent(leagueKey)}&start=${start}&count=${count}`;
+                const response = await this._apiRequest(url);
+                const result = await response.json();
+
+                if (result.auth_required) {
+                    this.authenticated = false;
+                    this.updateUI();
+                    return null;
+                }
+
+                if (!result.success) {
+                    if (start > 0) {
+                        hasMore = false;
+                        break;
+                    }
+                    console.error('Yahoo draft analysis API error:', result);
+                    hasMore = false;
+                    break;
+                }
+
+                if (!result.players || result.players.length === 0) {
+                    hasMore = false;
+                    break;
+                }
+
+                result.players.forEach(p => {
+                    if (!seenKeys.has(p.player_key)) {
+                        seenKeys.add(p.player_key);
+                        allPlayers.push(p);
+                    }
+                });
+
+                totalFetched += result.players.length;
+                start += count;
+
+                if (result.players.length < count) {
+                    hasMore = false;
+                }
+            } catch (e) {
+                console.error(`Error fetching draft analysis at offset ${start}:`, e);
+                hasMore = false;
+            }
+        }
+
+        if (statusCallback) {
+            statusCallback(`Loaded draft analysis for ${allPlayers.length} players`);
+        }
+
+        return allPlayers;
+    },
+
+    /**
      * Fetch draft results from Yahoo API
      */
     async fetchDraftResults(leagueKey) {
@@ -882,7 +957,7 @@ const YahooApi = {
             <div style="margin-top: 12px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                     <h4 style="margin: 0; color: #16a34a; font-size: 1.1rem;">${settings.name}</h4>
-                    <span style="font-size: 0.85em; color: #64748b;">${settings.season} Season | ${settings.draft_status || ''}</span>
+                    <span style="font-size: 0.85em; color: #64748b;">${settings.season} Season | ${settings.draft_status || ''} | <code style="background:#e2e8f0; padding:1px 5px; border-radius:3px; user-select:all;">${this.selectedLeague?.league_key || ''}</code></span>
                 </div>
 
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">

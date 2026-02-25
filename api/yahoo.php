@@ -9,6 +9,7 @@
  *   ?action=draftresults&league_key=XXX  - Get draft results
  *   ?action=teams&league_key=XXX  - Get league teams
  *   ?action=roster&league_key=XXX&team_key=XXX - Get team roster
+ *   ?action=draftanalysis_adp&league_key=XXX&start=0&count=25 - Get draft analysis (ADP) data
  */
 
 header('Content-Type: application/json');
@@ -104,6 +105,9 @@ switch ($action) {
         break;
     case 'roster':
         handleRoster($apiBase, $tokens);
+        break;
+    case 'draftanalysis_adp':
+        handleDraftAnalysisADP($apiBase, $tokens);
         break;
     case 'debug_players':
         handleDebugPlayers($apiBase, $tokens);
@@ -500,6 +504,138 @@ function handleRoster($apiBase, $tokens) {
     }
 
     echo json_encode(['success' => true, 'data' => $data]);
+}
+
+/**
+ * Get draft analysis (ADP) data for league players
+ * Returns average_pick, average_round, average_cost, percent_drafted
+ */
+function handleDraftAnalysisADP($apiBase, $tokens) {
+    $leagueKey = isset($_GET['league_key']) ? $_GET['league_key'] : '';
+    if (!$leagueKey) {
+        echo json_encode(['success' => false, 'error' => 'league_key required']);
+        return;
+    }
+
+    $start = isset($_GET['start']) ? (int)$_GET['start'] : 0;
+    $count = isset($_GET['count']) ? min((int)$_GET['count'], 25) : 25;
+
+    $url = "{$apiBase}/league/{$leagueKey}/players;start={$start};count={$count};sort=OR/draft_analysis?format=json";
+    $data = yahooApiGet($url, $tokens['access_token']);
+
+    if (!$data) {
+        $lastError = isset($GLOBALS['_yahoo_last_error']) ? $GLOBALS['_yahoo_last_error'] : null;
+        $errorInfo = [
+            'success' => false,
+            'error' => 'Failed to fetch draft analysis from Yahoo API',
+            'url' => $url,
+        ];
+        if ($lastError) {
+            $errorInfo['http_code'] = $lastError['http_code'];
+            $errorInfo['yahoo_response'] = $lastError['response_body'];
+        }
+        echo json_encode($errorInfo);
+        return;
+    }
+
+    // Parse player + draft_analysis data
+    $players = [];
+
+    $leagueData = isset($data['fantasy_content']['league']) ? $data['fantasy_content']['league'] : null;
+    if (!$leagueData) {
+        echo json_encode(['success' => false, 'error' => 'Unexpected API response structure']);
+        return;
+    }
+
+    $playersWrapper = isset($leagueData[1]) ? $leagueData[1] : null;
+    if (!$playersWrapper || !isset($playersWrapper['players'])) {
+        echo json_encode([
+            'success' => true,
+            'players' => [],
+            'start' => $start,
+            'count' => 0,
+            'total' => 0,
+        ]);
+        return;
+    }
+
+    $playersData = $playersWrapper['players'];
+    $playerCount = isset($playersData['count']) ? (int)$playersData['count'] : 0;
+
+    // Debug mode: return raw structure of first player to inspect
+    $debug = isset($_GET['debug']) && $_GET['debug'] === '1';
+    $debugSample = null;
+
+    for ($i = 0; $i < $playerCount; $i++) {
+        if (!isset($playersData[$i]['player'])) continue;
+
+        $playerArr = $playersData[$i]['player'];
+
+        // Capture first player's raw structure for debugging
+        if ($debug && $i === 0) {
+            $debugSample = $playerArr;
+        }
+
+        // player[0] = player info array
+        $playerInfo = $playerArr[0];
+        $player = extractPlayerInfo($playerInfo);
+        if (!$player) continue;
+
+        // Extract draft_analysis - search through all indices beyond [0]
+        // Yahoo returns draft_analysis as an array of single-key objects:
+        //   [{"average_pick":"1.5"}, {"average_round":"1.0"}, ...]
+        $draftAnalysis = [];
+        for ($j = 1; $j < count($playerArr); $j++) {
+            if (is_array($playerArr[$j]) && isset($playerArr[$j]['draft_analysis'])) {
+                $daArr = $playerArr[$j]['draft_analysis'];
+                // Flatten array of single-key objects into one associative array
+                $da = [];
+                if (is_array($daArr)) {
+                    foreach ($daArr as $item) {
+                        if (is_array($item)) {
+                            foreach ($item as $key => $val) {
+                                $da[$key] = $val;
+                            }
+                        }
+                    }
+                }
+                $draftAnalysis = [
+                    'average_pick' => isset($da['average_pick']) ? (float)$da['average_pick'] : null,
+                    'average_round' => isset($da['average_round']) ? (float)$da['average_round'] : null,
+                    'average_cost' => isset($da['average_cost']) ? (float)$da['average_cost'] : null,
+                    'percent_drafted' => isset($da['percent_drafted']) ? (float)$da['percent_drafted'] : null,
+                ];
+                break;
+            }
+        }
+
+        $players[] = [
+            'name' => $player['name'],
+            'team' => $player['team'],
+            'player_key' => $player['player_key'],
+            'positions' => $player['positions'],
+            'position_type' => $player['position_type'],
+            'average_pick' => $draftAnalysis['average_pick'] ?? null,
+            'average_round' => $draftAnalysis['average_round'] ?? null,
+            'average_cost' => $draftAnalysis['average_cost'] ?? null,
+            'percent_drafted' => $draftAnalysis['percent_drafted'] ?? null,
+        ];
+    }
+
+    $result = [
+        'success' => true,
+        'players' => $players,
+        'start' => $start,
+        'count' => count($players),
+        'total' => $playerCount,
+    ];
+
+    if ($debug && $debugSample !== null) {
+        $result['_debug_first_player_raw'] = $debugSample;
+        $result['_debug_player_keys'] = array_keys($playersData);
+    }
+
+    echo json_encode($result);
 }
 
 /**

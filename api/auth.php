@@ -84,6 +84,22 @@ switch ($action) {
  * Redirect user to Yahoo OAuth login page
  */
 function handleLogin($config) {
+    // Save credentials to temp file so callback.php can use them
+    // (needed when user enters credentials via UI instead of config file)
+    $tempConfigFile = __DIR__ . '/../data/yahoo_oauth_pending.json';
+    $dir = dirname($tempConfigFile);
+    if (!is_dir($dir)) {
+        mkdir($dir, 0755, true);
+    }
+    file_put_contents($tempConfigFile, json_encode([
+        'client_id'     => $config['client_id'],
+        'client_secret' => $config['client_secret'],
+        'redirect_uri'  => $config['redirect_uri'],
+        'token_url'     => $config['token_url'],
+        'token_file'    => $config['token_file'],
+        'created_at'    => time(),
+    ]));
+
     $params = http_build_query([
         'client_id'     => $config['client_id'],
         'redirect_uri'  => $config['redirect_uri'],

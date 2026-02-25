@@ -509,7 +509,7 @@ const YahooParser = {
             const result = await response.json();
 
             if (!result.success) {
-                console.error('API returned error:', result.error);
+                // "File not found" is expected on fresh setups — not an error
                 return false;
             }
 

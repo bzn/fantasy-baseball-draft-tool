@@ -4,12 +4,24 @@
  * Dedicated endpoint so redirect_uri has no query parameters
  */
 
-// Load config
+// Load config: try config file first, then pending OAuth temp file
 $configFile = __DIR__ . '/yahoo-config.php';
-if (!file_exists($configFile)) {
-    die('Config not found');
+$pendingFile = __DIR__ . '/../data/yahoo_oauth_pending.json';
+
+if (file_exists($configFile)) {
+    $config = require $configFile;
+} elseif (file_exists($pendingFile)) {
+    $config = json_decode(file_get_contents($pendingFile), true);
+    if (!$config || !isset($config['client_id'])) {
+        die('Invalid pending OAuth config');
+    }
+    // Set defaults that the config file would normally provide
+    $config['redirect_uri'] = $config['redirect_uri'] ?? 'https://localhost/fantasy-baseball-draft-tool/api/callback.php';
+    $config['token_url'] = $config['token_url'] ?? 'https://api.login.yahoo.com/oauth2/get_token';
+    $config['token_file'] = $config['token_file'] ?? __DIR__ . '/../data/yahoo_token.json';
+} else {
+    die('Config not found. Please enter Yahoo API credentials in the Setup tab and try again.');
 }
-$config = require $configFile;
 
 // Check for authorization code
 $code = isset($_GET['code']) ? $_GET['code'] : null;
@@ -81,6 +93,11 @@ if (isset($tokenData['access_token'])) {
     }
     $tokenData['saved_at'] = time();
     file_put_contents($tokenFile, json_encode($tokenData, JSON_PRETTY_PRINT));
+
+    // Clean up pending OAuth temp file
+    if (file_exists($pendingFile)) {
+        unlink($pendingFile);
+    }
 
     // Success page
     header('Content-Type: text/html');
