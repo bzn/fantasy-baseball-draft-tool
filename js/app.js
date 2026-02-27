@@ -77,6 +77,7 @@ const App = {
         document.getElementById('positionFilter')?.addEventListener('change', () => this.updateRankingsTable());
         document.getElementById('searchPlayer')?.addEventListener('input', (e) => this.searchPlayers(e.target.value));
         document.getElementById('hideDrafted')?.addEventListener('change', () => this.updateRankingsTable());
+        document.getElementById('exportYahooPreRank')?.addEventListener('click', () => this.exportYahooPreRankScript());
 
         // Draft Assistant events
         document.getElementById('processDraftLogBtn')?.addEventListener('click', () => this.processDraftLog());
@@ -898,6 +899,258 @@ const App = {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+    },
+
+    /**
+     * Export a JavaScript snippet for Yahoo Pre-Draft Rankings page.
+     * The generated script reorders players on Yahoo's editprerank page
+     * to match our calculated rankings.
+     */
+    exportYahooPreRankScript() {
+        const leagueData = this.currentData.combined;
+        if (!leagueData || leagueData.length === 0) {
+            alert('No ranking data available. Please import and calculate rankings first.');
+            return;
+        }
+
+        // Get UV player set for pre-rank demotion
+        const uvSet = this.getUndervaluedSet();
+
+        // Build ordered list: rank 1 first, sorted by overallRank
+        const sorted = [...leagueData].sort((a, b) => (a.overallRank || 999) - (b.overallRank || 999));
+
+        // Build ranking entries with UV demotion applied
+        const UV_DEMOTION = 20;
+        const entries = sorted.map((p, idx) => {
+            let yahooName = p.name;
+            const norm = this.normalizeName(p.name);
+            const isDuplicate = sorted.some(other =>
+                other !== p && this.normalizeName(other.name) === norm
+            );
+            if (isDuplicate) {
+                if (p.type === 'hitter') yahooName = p.name + ' (Batter)';
+                else if (p.type === 'pitcher') yahooName = p.name + ' (Pitcher)';
+            }
+            const uvKey = p.name + '|' + (p.playerType || '');
+            const isUV = uvSet.has(uvKey);
+            const originalRank = idx + 1;
+            // UV players get demoted by 20 positions (drafted later for max value)
+            const adjustedRank = isUV ? originalRank + UV_DEMOTION : originalRank;
+            return {
+                name: yahooName,
+                norm: norm,
+                type: p.type,
+                originalRank: originalRank,
+                adjustedRank: adjustedRank,
+                isUV: isUV
+            };
+        });
+
+        // Re-sort by adjustedRank to get final export order
+        entries.sort((a, b) => a.adjustedRank - b.adjustedRank);
+        const rankings = entries.map((e, idx) => ({
+            name: e.name,
+            norm: e.norm,
+            type: e.type,
+            rank: idx + 1
+        }));
+
+        // Log UV adjustments for user awareness
+        const uvPlayers = entries.filter(e => e.isUV);
+        if (uvPlayers.length > 0) {
+            console.log(`Pre-Rank UV demotion: ${uvPlayers.length} players moved down ${UV_DEMOTION} spots:`);
+            uvPlayers.forEach(e => console.log(`  ${e.name}: #${e.originalRank} → #${e.adjustedRank}`));
+        }
+
+        // Ask user how many players to export
+        const limit = parseInt(prompt(
+            'How many top players to export?\n' +
+            '(Recommended: 200-400 for snake draft)\n' +
+            '(Yahoo rate limits may block too many)',
+            '300'
+        ));
+        if (!limit || isNaN(limit)) return;
+
+        const limitedRankings = rankings.slice(0, limit);
+
+        // Generate self-contained JS script
+        const script = this._buildYahooPreRankScript(limitedRankings);
+
+        // Copy to clipboard
+        navigator.clipboard.writeText(script).then(() => {
+            alert(
+                `Yahoo Pre-Rank script (top ${limitedRankings.length} players) copied!\n\n` +
+                'Steps:\n' +
+                '1. Go to Yahoo editprerank page\n' +
+                '2. Press F12 → Console tab\n' +
+                '3. Paste (Ctrl+V) and press Enter\n' +
+                '4. Wait for it to finish (~' + Math.ceil(limitedRankings.length * 0.8 / 60) + ' min)\n' +
+                '5. Click "Save Changes"'
+            );
+        }).catch(() => {
+            this.downloadFile(script, 'yahoo-prerank.js', 'text/javascript');
+            alert('Script downloaded as yahoo-prerank.js');
+        });
+    },
+
+    /**
+     * Build the Yahoo Pre-Rank console script string.
+     * Strategy: 1) Load all players, 2) Click green ">" button for each
+     * player in our ranking order to add them to Preferred Players list.
+     */
+    _buildYahooPreRankScript(rankings) {
+        const rankingsJson = JSON.stringify(rankings);
+
+        return `(function() {
+  var RANKINGS = ${rankingsJson};
+  var CLICK_DELAY = 800;
+  var STOP = false;
+  window._stopPreRank = function() { STOP = true; console.log('Stopping...'); };
+
+  function normalize(name) {
+    return name.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\\s*\\(batter\\)\\s*/i, '').replace(/\\s*\\(pitcher\\)\\s*/i, '')
+      .replace(/\\./g, '').trim();
+  }
+
+  var list = document.getElementById('all_player_list');
+  if (!list) { alert('Cannot find all_player_list. Are you on the editprerank page?'); return; }
+
+  // Phase 1: Load all players by clicking "Load More Players" repeatedly
+  function loadAllPlayers() {
+    return new Promise(function(resolve) {
+      var lastCount = 0;
+      var stableRounds = 0;
+      function clickMore() {
+        var currentCount = list.querySelectorAll('li').length;
+        // Find Load More button by text
+        var btn = null;
+        var links = document.querySelectorAll('a, button, span[role=button]');
+        for (var i = 0; i < links.length; i++) {
+          if (/load more/i.test(links[i].textContent)) {
+            btn = links[i];
+            break;
+          }
+        }
+        // Stop if: no button, or player count stopped growing for 2 rounds
+        if (currentCount === lastCount) {
+          stableRounds++;
+        } else {
+          stableRounds = 0;
+        }
+        lastCount = currentCount;
+        if (!btn || stableRounds >= 2) {
+          console.log('All players loaded: ' + currentCount);
+          resolve();
+          return;
+        }
+        console.log('Loading more players... current: ' + currentCount);
+        btn.click();
+        setTimeout(clickMore, 1500);
+      }
+      clickMore();
+    });
+  }
+
+  // Phase 2: Match and click preferred buttons in ranking order
+  function applyRankings() {
+    var items = Array.from(list.querySelectorAll('li'));
+    console.log('Total Yahoo players: ' + items.length);
+
+    // Build lookup: normalized name -> li element with plus button
+    var playerMap = {};
+    items.forEach(function(li) {
+      var spans = li.querySelectorAll('.Bfc > span');
+      var nameSpan = spans.length >= 2 ? spans[1] : null;
+      var rawName = nameSpan ? nameSpan.textContent.trim() : '';
+      var norm = normalize(rawName);
+      var isBatter = /\\(Batter\\)/i.test(rawName);
+      var isPitcher = /\\(Pitcher\\)/i.test(rawName);
+      var plusBtn = li.querySelector('.icon_plus');
+      var key = norm;
+      if (isBatter) key = norm + '|hitter';
+      else if (isPitcher) key = norm + '|pitcher';
+      playerMap[key] = { li: li, btn: plusBtn, rawName: rawName, norm: norm };
+    });
+
+    // Build ordered click queue from our rankings
+    var queue = [];
+    var matched = 0;
+    var unmatched = [];
+    RANKINGS.forEach(function(r) {
+      var key = r.norm;
+      if (r.type === 'hitter' && playerMap[r.norm + '|hitter']) key = r.norm + '|hitter';
+      else if (r.type === 'pitcher' && playerMap[r.norm + '|pitcher']) key = r.norm + '|pitcher';
+
+      var entry = playerMap[key];
+      if (entry && entry.btn) {
+        queue.push(entry);
+        matched++;
+        delete playerMap[key];
+      } else {
+        // Fuzzy: try last name
+        var rLast = r.norm.split(' ').pop();
+        var found = false;
+        for (var k in playerMap) {
+          var pLast = playerMap[k].norm.split(' ').pop();
+          if (rLast === pLast && rLast.length > 2) {
+            queue.push(playerMap[k]);
+            matched++;
+            delete playerMap[k];
+            found = true;
+            break;
+          }
+        }
+        if (!found) unmatched.push(r.name);
+      }
+    });
+
+    console.log('Matched: ' + matched + ', Unmatched: ' + unmatched.length);
+    if (unmatched.length > 0) console.log('Unmatched players:', unmatched.slice(0, 20));
+
+    // Click plus buttons sequentially with delay
+    var idx = 0;
+    var total = queue.length;
+    console.log('Tip: Run window._stopPreRank() to stop at any time.');
+    function clickNext() {
+      if (STOP) {
+        console.log('Stopped at ' + idx + '/' + total);
+        alert('Stopped at ' + idx + '/' + total + '. Click Save Changes to save what was added.');
+        return;
+      }
+      if (idx >= total) {
+        console.log('Done! Added ' + total + ' players to Preferred list.');
+        alert('Done! Added ' + matched + ' players to Preferred Players.\\n' +
+          (unmatched.length > 0 ? 'Unmatched (' + unmatched.length + '): ' + unmatched.slice(0, 10).join(', ') + (unmatched.length > 10 ? '...' : '') : 'All matched!') +
+          '\\n\\nClick Save Changes to save.');
+        return;
+      }
+      var entry = queue[idx];
+      if (entry.btn) {
+        entry.btn.click();
+        if (idx % 25 === 0) console.log('Progress: ' + (idx + 1) + '/' + total + ' - ' + entry.rawName);
+      }
+      idx++;
+      setTimeout(clickNext, CLICK_DELAY);
+    }
+
+    if (total === 0) {
+      alert('No players matched. Check that rankings are loaded in the draft tool.');
+      return;
+    }
+    console.log('Starting to add ' + total + ' players to Preferred list...');
+    clickNext();
+  }
+
+  // Run
+  console.log('=== Yahoo Pre-Rank Script ===');
+  console.log('Phase 1: Loading all players...');
+  loadAllPlayers().then(function() {
+    console.log('Phase 2: Applying rankings...');
+    applyRankings();
+  });
+})();`;
     },
 
     /**
