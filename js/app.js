@@ -916,8 +916,62 @@ const App = {
         // Get UV player set for pre-rank demotion
         const uvSet = this.getUndervaluedSet();
 
+        // Filter out high-risk injured players from PreRank export:
+        // 1. SUSP or IL60 (long-term unavailable)
+        // 2. Pitchers with elbow/shoulder injuries - maintained manually
+        const pitcherExcludeList = new Set([
+            // Elbow injuries
+            'tanner houck', 'jared jones', 'a.j. puk', 'manuel rodriguez',
+            'randy rodriguez', 'ronny henriquez', 'colin selby',
+            'spencer schwellenbach', 'justin martinez', 'jhony brito',
+            'jackson jobe', 'tylor megill', 'andrew saalfrank', 'reese olson',
+            'alec marsh', 'dj herz', 'corbin burnes', 'reed garrett',
+            'clarke schmidt', 'pablo lopez', 'felix bautista', 'evan phillips',
+            'dedniel nunez', 'bowden francis', 'jeff criswell', 'trevor williams',
+            'logan evans', 'prelander berroa', 'ronel blanco', 'nate pearson',
+            'ricky tiedemann', 'justin steele', 'jordan wicks', 'aj smith-shawver',
+            'carlos rodon', 'gerrit cole', 'drew thorpe', 'yimi garcia',
+            'cody bradford', 'chase hampton', 'cooper hjerpe', 'bailey horn',
+            'tekoah roby', 'hayden wesneski', 'brandon walter', 'blake walston',
+            'shelby miller', 'jake bloss', 'joey estes', 'yu darvish',
+            'james mcarthur', 'jordan montgomery', 'troy melton',
+            'shane mcclanahan', 'kutter crawford', 'sawyer gipson-long',
+            'ky bush', 'moises chace', 'luis medina', 'angel bastardo',
+            'david festa', 'pierson ohl', 'mccade brown', 'jacob lopez',
+            'edwin uceta', 'stephen kolek', 'orion kerkering',
+            // Shoulder injuries
+            'andrew saalfrank', 'reese olson', 'alec marsh',
+            'jason foley', 'blake snell', 'ben joyce',
+            'robert stephenson', 'brusdar graterol', 'daysbel hernandez',
+            'didier fuentes', 'aaron bummer', 'jackson kowar',
+            'zack wheeler', 'merrill kelly', 'hunter dobbins',
+            'sam hentges', 'danny young', 'david festa',
+            'cristian mena'
+        ].map(n => n.normalize('NFD').replace(/[\u0300-\u036f]/g, '')));
+
+        const excluded = [];
+        const healthy = leagueData.filter(p => {
+            const status = (p.injuryStatus || '').toUpperCase();
+            if (status === 'SUSP' || status === 'IL60') {
+                excluded.push(`${p.name} (${status})`);
+                return false;
+            }
+            if (p.type === 'pitcher') {
+                const norm = this.normalizeName(p.name);
+                if (pitcherExcludeList.has(norm)) {
+                    excluded.push(`${p.name} (pitcher, elbow/shoulder)`);
+                    return false;
+                }
+            }
+            return true;
+        });
+        if (excluded.length > 0) {
+            console.log(`Pre-Rank: excluded ${excluded.length} injured players:`);
+            excluded.forEach(name => console.log(`  - ${name}`));
+        }
+
         // Build ordered list: rank 1 first, sorted by overallRank
-        const sorted = [...leagueData].sort((a, b) => (a.overallRank || 999) - (b.overallRank || 999));
+        const sorted = [...healthy].sort((a, b) => (a.overallRank || 999) - (b.overallRank || 999));
 
         // Build ranking entries with UV demotion applied
         const UV_DEMOTION = 20;
